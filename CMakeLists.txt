@@ -29,7 +29,7 @@ install(TARGETS multidow RUNTIME DESTINATION bin)
 
 # --- Tests ---
 
-option(BUILD_TESTS "Build tests" ON)
+option(BUILD_TESTS "Build tests (requires Google Test / Catch2)" OFF)
 
 if(BUILD_TESTS)
     enable_testing()
