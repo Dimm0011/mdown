@@ -22,7 +22,7 @@ struct CurlHeader {
     std::string filename;
 };
 
-static size_t header_cb(char* buf, size_t size, size_t nitems, void* userp) {
+static size_t header_cb(char* buf, size_t /*size*/, size_t nitems, void* userp) {
     auto* hdr = static_cast<CurlHeader*>(userp);
     std::string h(buf, nitems);
     if (h.find("Content-Length:") != std::string::npos) {

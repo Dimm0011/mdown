@@ -4,6 +4,8 @@ project(MultiDow LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+add_compile_options(-Wall -Wextra -Werror)
+
 find_package(CURL REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)

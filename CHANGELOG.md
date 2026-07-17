@@ -14,5 +14,8 @@
 - Low-speed detection (auto-abort stalled transfers)
 - Ctrl+C graceful shutdown with progress save
 - 3 test suites: unit (20), Google Test (39), Catch2 (33)
-- CI/CD via GitHub Actions (Ubuntu, macOS)
+- CI/CD via GitHub Actions (Ubuntu, macOS) with clang-format/clang-tidy
 - Configurable timeout, retries, thread count
+- Architecture documentation (`docs/ARCHITECTURE.md`)
+- CONTRIBUTING.md, issue/PR templates
+- Semver tagging (v1.0.0)

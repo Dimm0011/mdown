@@ -85,8 +85,10 @@ TEST_CASE("make_bar width 1", "[bar]") {
 static std::string make_temp(const std::string& content) {
     char path[] = "/tmp/multidow_catch2_XXXXXX";
     int fd = mkstemp(path);
-    if (!content.empty())
-        write(fd, content.c_str(), content.size());
+    if (!content.empty()) {
+        auto rc = write(fd, content.c_str(), content.size());
+        (void)rc;
+    }
     close(fd);
     return path;
 }

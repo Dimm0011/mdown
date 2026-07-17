@@ -99,8 +99,10 @@ protected:
         char buf[] = "/tmp/multidow_test_XXXXXX";
         int fd = mkstemp(buf);
         ASSERT_NE(fd, -1);
-        if (!content.empty())
-            write(fd, content.c_str(), content.size());
+        if (!content.empty()) {
+            auto rc = write(fd, content.c_str(), content.size());
+            (void)rc;
+        }
         close(fd);
         path_ = buf;
     }

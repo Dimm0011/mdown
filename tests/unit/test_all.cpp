@@ -29,7 +29,8 @@ static int tests_passed = 0;
 static std::string temp_file(const std::string& content) {
     char path[] = "/tmp/multidow_test_XXXXXX";
     int fd = mkstemp(path);
-    write(fd, content.c_str(), content.size());
+    auto rc = write(fd, content.c_str(), content.size());
+    (void)rc;
     close(fd);
     return path;
 }
