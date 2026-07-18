@@ -4,48 +4,57 @@ Multi-threaded file downloader with resume support for Linux.
 
 ## Features
 
-- Multi-threaded download — splits file into chunks, downloads in parallel
+- Multi-threaded download — splits file into chunks, downloads via shared thread pool
 - Multi-file — download multiple files simultaneously
 - Resume — interrupted downloads continue from where they left off
 - Auto-retry — stalled transfers detected and retried automatically
 - Progress bar — real-time progress for each file (apt-style)
 - SHA-256 checksum verification
 - Full HTTP support — redirects, cookies, User-Agent
+- Cooperative cancellation — Ctrl+C saves progress cleanly via `std::stop_token`
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────┐
-│                   CLI (main.cpp)                │
-│  arg parsing, signal handler, file/thread mgmt  │
+│                CLI (main.cpp)                   │
+│  arg parsing, signal handler (SIGINT/SIGTERM)   │
+│  spawns std::jthread per URL                    │
 └────────────────────┬────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────┐
-│              Downloader (downloader.cpp)         │
+│             Downloader (downloader.cpp)          │
 │  orchestrates probe, chunk split, retry, resume  │
 └──┬──────────┬───────────┬───────────┬───────────┘
    │          │           │           │
 ┌──▼───┐ ┌───▼────┐ ┌────▼────┐ ┌───▼───────────┐
 │ CURL │ │ Chunk  │ │ Resume  │ │  Progress     │
-│ wrap │ │ sched  │ │ manager │ │  manager      │
-│ per  │ │ N chun │ │ .mdow   │ │  per-file bar │
-│ req  │ │ ks     │ │ files   │ │  ETA / speed  │
-└──────┘ └────────┘ └─────────┘ └───────────────┘
-
-                  ┌───────────────┐
-                  │ Checksum      │
-                  │ verifier      │
-                  │ (SHA-256)     │
-                  └───────────────┘
+│ wrap │ │ pool   │ │ manager │ │  manager      │
+│ per  │ │ submit │ │ .mdow   │ │  per-file bar │
+│ req  │ │ to     │ │ files   │ │  ETA / speed  │
+│      │ │ shared │ │         │ │  std::format  │
+└──────┘ │ pool   │ └─────────┘ └───────────────┘
+         └────────┘
+                 ┌───────────────────────┐
+                 │ ThreadPool            │
+                 │ std::jthread workers  │
+                 │ shared across files   │
+                 └───────────┬───────────┘
+                             │
+                 ┌───────────▼───────────┐
+                 │ Checksum              │
+                 │ verifier (SHA-256)    │
+                 │ OpenSSL EVP           │
+                 └───────────────────────┘
 ```
 
 **Data flow:**
-1. `CLI` parses args, spawns one thread per URL
-2. `Downloader` probes server (HEAD request) for file size & Range support
-3. `Chunk scheduler` splits file into N ranges, spawns N threads per file
-4. Each thread uses a `CURL wrapper` with its own handle and Range header
+1. `CLI` parses args, installs signal handler, spawns one `std::jthread` per URL
+2. Each `Downloader` probes the server (HEAD request) for file size & Range support
+3. `start_download()` splits file into N chunk tasks, submits each to the shared `ThreadPool`
+4. Each chunk uses its own `CURL` handle with a `Range` header; returns `std::future<bool>`
 5. `Resume manager` saves/loads `.mdow` metadata for interrupted downloads
-6. `Progress manager` aggregates per-thread progress into a single line per file
+6. `Progress manager` aggregates per-chunk progress into a single line per file, timer-driven redraw (100ms), sliding window speed
 7. `Checksum verifier` validates SHA-256 after download completes
 
 ## Build
@@ -61,7 +70,7 @@ make -j$(nproc)
 - libcurl (with SSL)
 - OpenSSL
 - CMake 3.14+
-- C++17 compiler
+- C++20 compiler (GCC 13+ or Clang 16+)
 
 ```bash
 # Ubuntu/Debian

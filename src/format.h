@@ -1,9 +1,8 @@
 #pragma once
 
 #include <string>
+#include <format>
 #include <cstdint>
-#include <sstream>
-#include <iomanip>
 
 namespace multidow {
 
@@ -12,9 +11,7 @@ inline std::string format_bytes(uint64_t b) {
     double v = b;
     int u = 0;
     while (v >= 1024 && u < 3) { v /= 1024; u++; }
-    std::ostringstream ss;
-    ss << std::fixed << std::setprecision(1) << v << " " << units[u];
-    return ss.str();
+    return std::format("{:.1f} {}", v, units[u]);
 }
 
 inline std::string format_speed(uint64_t bps) {

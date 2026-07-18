@@ -1,10 +1,13 @@
 #include "downloader.h"
 #include "checksum.h"
+#include "file_handle.h"
+#include "thread_pool.h"
 
 #include <curl/curl.h>
 #include <iostream>
 #include <fstream>
-#include <sstream>
+#include <format>
+#include <stop_token>
 #include <thread>
 #include <mutex>
 #include <filesystem>
@@ -15,6 +18,15 @@ namespace fs = std::filesystem;
 namespace multidow {
 
 static const char* USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) MultiDow/1.0";
+
+static int curl_debug_cb(CURL*, curl_infotype type, char*, size_t size, void*) {
+    if (type == CURLINFO_TEXT)
+        return 0;
+    if (type == CURLINFO_HEADER_IN || type == CURLINFO_HEADER_OUT)
+        return 0;
+    (void)size;
+    return 0;
+}
 
 struct CurlHeader {
     uint64_t file_size = 0;
@@ -59,18 +71,20 @@ struct ChunkCtx {
 static size_t chunk_write_cb(char* ptr, size_t sz, size_t nm, void* ud) {
     auto* c = static_cast<ChunkCtx*>(ud);
     size_t bytes = sz * nm;
-    std::lock_guard<std::mutex> lock(*c->fp_mtx);
-    fseek(c->fp, c->write_offset, SEEK_SET);
-    size_t written = fwrite(ptr, 1, bytes, c->fp);
-    c->write_offset += written;
-    c->bytes_written += written;
+    {
+        std::lock_guard<std::mutex> lock(*c->fp_mtx);
+        fseek(c->fp, c->write_offset, SEEK_SET);
+        size_t written = fwrite(ptr, 1, bytes, c->fp);
+        c->write_offset += written;
+        c->bytes_written += written;
+    }
     c->pm->update_thread(c->file_id, c->thread_id, c->bytes_written, c->chunk_total);
-    return written;
+    return bytes;
 }
 
 static int chunk_xfer_cb(void* ud, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
     auto* c = static_cast<ChunkCtx*>(ud);
-    if (g_cancelled) return 1;
+    if (g_stop.stop_requested()) return 1;
     c->pm->update_thread(c->file_id, c->thread_id, c->bytes_written, c->chunk_total);
     return 0;
 }
@@ -94,7 +108,7 @@ static size_t single_write_cb(char* ptr, size_t sz, size_t nm, void* ud) {
 
 static int single_xfer_cb(void* ud, curl_off_t dltotal, curl_off_t dlnow, curl_off_t, curl_off_t) {
     auto* c = static_cast<SingleCtx*>(ud);
-    if (g_cancelled) return 1;
+    if (g_stop.stop_requested()) return 1;
     uint64_t total = (dltotal > 0) ? (uint64_t)dltotal : c->expected_total;
     uint64_t now = (dlnow > 0) ? (uint64_t)dlnow : c->bytes_written;
     c->pm->update_thread(c->file_id, 0, now, total);
@@ -111,10 +125,12 @@ void Downloader::configure_curl(CURL* curl) {
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1024L);
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10L);
+    curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, curl_debug_cb);
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
 }
 
-Downloader::Downloader(const DownloadConfig& config, ProgressManager& pm)
-    : config_(config), pm_(pm) {
+Downloader::Downloader(const DownloadConfig& config, ProgressManager& pm, ThreadPool& pool)
+    : config_(config), pm_(pm), pool_(pool) {
     if (config_.output_path.empty())
         config_.output_path = extract_filename(config_.url);
 }
@@ -160,7 +176,7 @@ uint64_t Downloader::probe_server() {
 
         if (attempt < config_.max_retries) {
             int delay = 1 << attempt;
-            std::cerr << "Probe failed, retrying in " << delay << "s...\r" << std::flush;
+            std::cerr << std::format("Probe failed, retrying in {}s...\r", delay) << std::flush;
             std::this_thread::sleep_for(std::chrono::seconds(delay));
         }
     }
@@ -215,43 +231,44 @@ bool Downloader::start_download() {
     if (config_.num_threads <= 1 || !range_supported_ || file_size_ == 0)
         return download_single();
 
-    FILE* fp = fopen(output.c_str(), resume ? "r+b" : "wb");
+    FileHandle fp(output, resume ? "r+b" : "wb");
     if (!fp) {
         pm_.set_file_done(file_id_, false, "Cannot open file");
         return false;
     }
 
     if (file_size_ > 0) {
-        fseek(fp, file_size_ - 1, SEEK_SET);
-        fwrite("", 1, 1, fp);
+        fseek(fp.get(), file_size_ - 1, SEEK_SET);
+        fwrite("", 1, 1, fp.get());
     }
 
     uint64_t chunk_size = file_size_ / config_.num_threads;
     std::mutex fp_mtx;
-    std::vector<std::thread> threads;
     std::atomic<int> success_count{0};
     int total_chunks = config_.num_threads;
+    std::vector<std::future<bool>> futures;
+    futures.reserve(total_chunks);
 
     for (int i = 0; i < config_.num_threads; i++) {
         uint64_t base_start = (uint64_t)i * chunk_size;
         uint64_t end = (i == config_.num_threads - 1) ? file_size_ - 1 : (uint64_t)(i + 1) * chunk_size - 1;
         uint64_t chunk_total = end - base_start + 1;
 
-        threads.emplace_back([this, i, base_start, chunk_total, fp, &fp_mtx, &success_count]() {
+        futures.push_back(pool_.submit([this, i, base_start, chunk_total, fp_raw = fp.get(), &fp_mtx, &success_count]() -> bool {
             pm_.mark_thread_active(file_id_, i);
             pm_.redraw();
 
             bool success = false;
             for (int retry = 0; retry <= config_.max_retries; retry++) {
-                if (g_cancelled) break;
+                if (g_stop.stop_requested()) break;
 
                 CURL* curl = curl_easy_init();
                 if (!curl) { std::this_thread::sleep_for(std::chrono::seconds(1)); continue; }
 
                 uint64_t bytes_already = 0;
                 {
-                    std::lock_guard<std::mutex> lock(fp_mtx);
-                    long pos = ftell(fp);
+                    std::lock_guard lock(fp_mtx);
+                    long pos = ftell(fp_raw);
                     if (pos >= (long)base_start && pos < (long)(base_start + chunk_total))
                         bytes_already = (uint64_t)pos - base_start;
                 }
@@ -261,7 +278,7 @@ bool Downloader::start_download() {
 
                 if (remaining == 0) { success = true; curl_easy_cleanup(curl); break; }
 
-                ChunkCtx ctx{&pm_, file_id_, i, chunk_total, bytes_already, fp, resume_from, &fp_mtx};
+                ChunkCtx ctx{&pm_, file_id_, i, chunk_total, bytes_already, fp_raw, resume_from, &fp_mtx};
 
                 configure_curl(curl);
                 curl_easy_setopt(curl, CURLOPT_URL, config_.url.c_str());
@@ -298,13 +315,13 @@ bool Downloader::start_download() {
                 pm_.mark_thread_error(file_id_, i);
             }
             pm_.redraw();
-        });
+            return success;
+        }));
     }
 
-    for (auto& t : threads) t.join();
-    fclose(fp);
+    for (auto& f : futures) f.get();
 
-    if (g_cancelled) {
+    if (g_stop.stop_requested()) {
         save_metadata();
         return false;
     }
@@ -326,23 +343,27 @@ bool Downloader::download_single() {
         resume_offset = fs::file_size(output);
 
     for (int retry = 0; retry <= config_.max_retries; retry++) {
-        if (g_cancelled) return false;
+        if (g_stop.stop_requested()) return false;
 
-        FILE* fp = fopen(output.c_str(), retry == 0 && resume_offset == 0 ? "wb" : "r+b");
+        FileHandle fp(output, retry == 0 && resume_offset == 0 ? "wb" : "r+b");
         if (!fp) {
             pm_.set_file_done(file_id_, false, "Cannot open file");
             return false;
         }
 
         if (resume_offset > 0)
-            fseek(fp, resume_offset, SEEK_SET);
+            fseek(fp.get(), resume_offset, SEEK_SET);
 
         pm_.mark_thread_active(file_id_, 0);
         pm_.redraw();
 
-        SingleCtx ctx{fp, &pm_, file_id_, resume_offset, file_size_};
+        SingleCtx ctx{fp.get(), &pm_, file_id_, resume_offset, file_size_};
 
         CURL* curl = curl_easy_init();
+        if (!curl) {
+            pm_.set_file_done(file_id_, false, "CURL init failed");
+            return false;
+        }
         configure_curl(curl);
         curl_easy_setopt(curl, CURLOPT_URL, config_.url.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, single_write_cb);
@@ -359,20 +380,17 @@ bool Downloader::download_single() {
         CURLcode res = curl_easy_perform(curl);
         curl_easy_cleanup(curl);
 
-        if (g_cancelled) {
-            fclose(fp);
+        if (g_stop.stop_requested()) {
             save_metadata();
             return false;
         }
 
         if (res == CURLE_OK) {
-            fclose(fp);
             pm_.mark_thread_finished(file_id_, 0);
             fs::remove(meta_path());
             return true;
         }
 
-        fclose(fp);
         resume_offset = fs::file_size(output);
 
         if (retry < config_.max_retries) {

@@ -10,6 +10,8 @@
 
 namespace multidow {
 
+class ThreadPool;
+
 struct DownloadConfig {
     std::string url;
     std::string output_path;
@@ -22,7 +24,7 @@ struct DownloadConfig {
 
 class Downloader {
 public:
-    Downloader(const DownloadConfig& config, ProgressManager& pm);
+    Downloader(const DownloadConfig& config, ProgressManager& pm, ThreadPool& pool);
     ~Downloader() = default;
 
     bool run();
@@ -30,6 +32,7 @@ public:
 private:
     DownloadConfig config_;
     ProgressManager& pm_;
+    ThreadPool& pool_;
     int file_id_ = -1;
     uint64_t file_size_ = 0;
     bool range_supported_ = false;

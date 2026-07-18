@@ -1,5 +1,6 @@
 #include "downloader.h"
 #include "progress.h"
+#include "thread_pool.h"
 #include <curl/curl.h>
 
 #include <iostream>
@@ -8,6 +9,7 @@
 #include <vector>
 #include <memory>
 #include <thread>
+#include <stop_token>
 #include <cstring>
 #include <cstdlib>
 #include <csignal>
@@ -50,7 +52,7 @@ static std::vector<std::string> read_urls_from_file(const std::string& path) {
 }
 
 static void sigint_handler(int) {
-    multidow::g_cancelled = true;
+    multidow::g_signal_received = 1;
 }
 
 int main(int argc, char* argv[]) {
@@ -96,8 +98,20 @@ int main(int argc, char* argv[]) {
     curl_global_init(CURL_GLOBAL_ALL);
 
     multidow::ProgressManager pm;
+    multidow::ThreadPool pool;
     std::vector<std::unique_ptr<multidow::Downloader>> downloaders;
-    std::vector<std::thread> file_threads;
+    std::vector<std::jthread> file_threads;
+
+    std::jthread timer([&pm](std::stop_token st) {
+        while (!st.stop_requested()) {
+            if (multidow::g_signal_received) {
+                multidow::g_stop.request_stop();
+                break;
+            }
+            pm.poll();
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    });
 
     for (auto& url : urls) {
         auto config = [&]() {
@@ -106,16 +120,15 @@ int main(int argc, char* argv[]) {
             if (urls.size() > 1) c.output_path = "";
             return c;
         }();
-        downloaders.push_back(std::make_unique<multidow::Downloader>(std::move(config), pm));
+        downloaders.push_back(std::make_unique<multidow::Downloader>(std::move(config), pm, pool));
     }
 
     for (auto& dl : downloaders) {
-        file_threads.emplace_back([&dl]() {
-            dl->run();
-        });
+        file_threads.emplace_back([&dl]() { dl->run(); });
     }
 
-    for (auto& t : file_threads) t.join();
+    file_threads.clear();
+    timer.request_stop();
 
     curl_global_cleanup();
 

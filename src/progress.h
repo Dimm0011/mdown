@@ -2,14 +2,22 @@
 
 #include <string>
 #include <vector>
+#include <deque>
 #include <mutex>
-#include <atomic>
+#include <stop_token>
 #include <cstdint>
+#include <csignal>
 #include <chrono>
 
 namespace multidow {
 
-extern std::atomic<bool> g_cancelled;
+extern std::stop_source g_stop;
+extern volatile sig_atomic_t g_signal_received;
+
+struct SpeedSample {
+    std::chrono::steady_clock::time_point time;
+    uint64_t bytes;
+};
 
 struct ThreadState {
     uint64_t bytes_downloaded = 0;
@@ -28,6 +36,7 @@ struct FileState {
     bool success = false;
     std::string status_text;
     std::chrono::steady_clock::time_point start_time;
+    std::deque<SpeedSample> speed_history;
 };
 
 class ProgressManager {
@@ -42,6 +51,7 @@ public:
     void mark_thread_error(int file_id, int thread_id);
     void set_file_done(int file_id, bool success, const std::string& msg = "");
     void redraw();
+    void poll();
 
     bool all_done() const;
 
@@ -51,6 +61,7 @@ private:
     int prev_lines_ = 0;
     std::chrono::steady_clock::time_point last_redraw_;
     bool terminal_supported_ = true;
+    bool dirty_ = false;
 
     void do_redraw();
 };

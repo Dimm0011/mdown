@@ -1,8 +1,7 @@
 #include "checksum.h"
 #include <openssl/evp.h>
 #include <fstream>
-#include <sstream>
-#include <iomanip>
+#include <format>
 #include <iostream>
 
 namespace multidow {
@@ -42,10 +41,11 @@ std::string sha256_file(const std::string& filepath) {
     }
     EVP_MD_CTX_free(ctx);
 
-    std::ostringstream ss;
+    std::string result;
+    result.reserve(hash_len * 2);
     for (unsigned int i = 0; i < hash_len; i++)
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
-    return ss.str();
+        result += std::format("{:02x}", hash[i]);
+    return result;
 }
 
 bool verify_checksum(const std::string& filepath, const std::string& expected) {
