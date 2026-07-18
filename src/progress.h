@@ -27,6 +27,7 @@ struct FileState {
     bool done = false;
     bool success = false;
     std::string status_text;
+    std::chrono::steady_clock::time_point start_time;
 };
 
 class ProgressManager {
@@ -48,7 +49,6 @@ private:
     std::vector<FileState> files_;
     mutable std::mutex mtx_;
     int prev_lines_ = 0;
-    std::chrono::steady_clock::time_point start_time_;
     std::chrono::steady_clock::time_point last_redraw_;
     bool terminal_supported_ = true;
 

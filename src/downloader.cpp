@@ -160,8 +160,7 @@ uint64_t Downloader::probe_server() {
 
         if (attempt < config_.max_retries) {
             int delay = 1 << attempt;
-            pm_.set_file_done(file_id_ >= 0 ? file_id_ : pm_.add_file(config_.output_path, 0, 1),
-                              false, "Probe failed, retrying in " + std::to_string(delay) + "s...");
+            std::cerr << "Probe failed, retrying in " << delay << "s...\r" << std::flush;
             std::this_thread::sleep_for(std::chrono::seconds(delay));
         }
     }

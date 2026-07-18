@@ -13,8 +13,7 @@ std::atomic<bool> g_cancelled{false};
 static const int MIN_REDRAW_MS = 150;
 
 ProgressManager::ProgressManager()
-    : start_time_(std::chrono::steady_clock::now())
-    , last_redraw_(std::chrono::steady_clock::now()) {
+    : last_redraw_(std::chrono::steady_clock::now()) {
     terminal_supported_ = isatty(STDERR_FILENO);
 }
 
@@ -26,6 +25,7 @@ int ProgressManager::add_file(const std::string& filename, uint64_t file_size, i
     fs.filename = filename;
     fs.file_size = file_size;
     fs.threads.resize(num_threads);
+    fs.start_time = std::chrono::steady_clock::now();
     files_.push_back(std::move(fs));
     return id;
 }
@@ -107,8 +107,6 @@ void ProgressManager::do_redraw() {
     if (!is_terminal_event && ms_since_last < MIN_REDRAW_MS) return;
     last_redraw_ = now;
 
-    auto elapsed = std::chrono::duration<double>(now - start_time_).count();
-
     std::ostringstream out;
 
     if (prev_lines_ > 0)
@@ -143,8 +141,9 @@ void ProgressManager::do_redraw() {
             out << make_bar(30, pct / 100.0) << " ";
             out << std::fixed << std::setprecision(1) << pct << "%";
 
-            if (elapsed > 0.5) {
-                double speed = (double)file_down / elapsed;
+            auto file_elapsed = std::chrono::duration<double>(now - f.start_time).count();
+            if (file_elapsed > 0.5) {
+                double speed = (double)file_down / file_elapsed;
                 out << "  " << format_speed((uint64_t)speed);
                 uint64_t remaining = file_total - file_down;
                 uint64_t eta = (speed > 0) ? (uint64_t)(remaining / speed) : 0;

@@ -12,6 +12,42 @@ Multi-threaded file downloader with resume support for Linux.
 - SHA-256 checksum verification
 - Full HTTP support — redirects, cookies, User-Agent
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│                   CLI (main.cpp)                │
+│  arg parsing, signal handler, file/thread mgmt  │
+└────────────────────┬────────────────────────────┘
+                     │
+┌────────────────────▼────────────────────────────┐
+│              Downloader (downloader.cpp)         │
+│  orchestrates probe, chunk split, retry, resume  │
+└──┬──────────┬───────────┬───────────┬───────────┘
+   │          │           │           │
+┌──▼───┐ ┌───▼────┐ ┌────▼────┐ ┌───▼───────────┐
+│ CURL │ │ Chunk  │ │ Resume  │ │  Progress     │
+│ wrap │ │ sched  │ │ manager │ │  manager      │
+│ per  │ │ N chun │ │ .mdow   │ │  per-file bar │
+│ req  │ │ ks     │ │ files   │ │  ETA / speed  │
+└──────┘ └────────┘ └─────────┘ └───────────────┘
+
+                  ┌───────────────┐
+                  │ Checksum      │
+                  │ verifier      │
+                  │ (SHA-256)     │
+                  └───────────────┘
+```
+
+**Data flow:**
+1. `CLI` parses args, spawns one thread per URL
+2. `Downloader` probes server (HEAD request) for file size & Range support
+3. `Chunk scheduler` splits file into N ranges, spawns N threads per file
+4. Each thread uses a `CURL wrapper` with its own handle and Range header
+5. `Resume manager` saves/loads `.mdow` metadata for interrupted downloads
+6. `Progress manager` aggregates per-thread progress into a single line per file
+7. `Checksum verifier` validates SHA-256 after download completes
+
 ## Build
 
 ```bash
