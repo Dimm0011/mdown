@@ -1,4 +1,4 @@
-# MultiDow
+# mdown
 
 Multi-threaded file downloader with resume support for Linux.
 
@@ -81,16 +81,16 @@ sudo apt install libcurl4-openssl-dev libssl-dev cmake g++
 
 ```bash
 # Single file
-./multidow "https://example.com/file.zip"
+./mdown "https://example.com/file.zip"
 
 # Multiple files
-./multidow "https://url1.zip" "https://url2.zip" "https://url3.zip"
+./mdown "https://url1.zip" "https://url2.zip" "https://url3.zip"
 
 # From URL list file
-./multidow -f urls.txt
+./mdown -f urls.txt
 
 # With options
-./multidow -f urls.txt -t 8 -r 5
+./mdown -f urls.txt -t 8 -r 5
 ```
 
 ## Options
@@ -116,15 +116,15 @@ https://example.com/file3.tar.gz
 
 ## Resume
 
-If download is interrupted (Ctrl+C, network failure, etc.), just run the same command again. MultiDow saves resume metadata (`.mdow` files) and continues from where it stopped.
+If download is interrupted (Ctrl+C, network failure, etc.), just run the same command again. mdown saves resume metadata (`.mdow` files) and continues from where it stopped.
 
 ```bash
 # First attempt — interrupted at 60%
-./multidow "https://example.com/large-file.zip"
+./mdown "https://example.com/large-file.zip"
 # ^C
 
 # Second attempt — resumes from 60%
-./multidow "https://example.com/large-file.zip"
+./mdown "https://example.com/large-file.zip"
 ```
 
 ## Tests

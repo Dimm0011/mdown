@@ -1,4 +1,4 @@
-# Contributing to MultiDow
+# Contributing to mdown
 
 Thanks for your interest in contributing!
 

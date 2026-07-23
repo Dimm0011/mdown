@@ -1,8 +1,41 @@
+# Build
 build/
-*.o
-*.mdow
-multidow
+build-*/
+out/
+
+# CMake
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
+CTestTestfile.cmake
+_deps/
+Testing/
+compile_commands.json
+
+# Compiled
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+multidow
+test_all
+gtest_all
+catch2_all
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cache/
+compile_commands.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project
+*.mdow

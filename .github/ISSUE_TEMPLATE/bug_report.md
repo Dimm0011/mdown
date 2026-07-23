@@ -14,7 +14,7 @@ assignees: ''
 A clear description of the bug.
 
 **Steps to Reproduce**
-1. Run `multidow ...`
+1. Run `mdown ...`
 2. ...
 
 **Expected Behavior**

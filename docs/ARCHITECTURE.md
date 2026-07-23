@@ -2,7 +2,7 @@
 
 ## Overview
 
-MultiDow splits files into byte-range chunks and downloads them in parallel via a shared `ThreadPool`. Each file runs on its own `std::jthread` (cooperative cancellation via `std::stop_token`). Individual chunk tasks are submitted to the pool and return `std::future<bool>`. Each chunk uses its own CURL handle and writes to the output file at a fixed offset, protected by a per-file mutex.
+mdown splits files into byte-range chunks and downloads them in parallel via a shared `ThreadPool`. Each file runs on its own `std::jthread` (cooperative cancellation via `std::stop_token`). Individual chunk tasks are submitted to the pool and return `std::future<bool>`. Each chunk uses its own CURL handle and writes to the output file at a fixed offset, protected by a per-file mutex.
 
 ```
 main()

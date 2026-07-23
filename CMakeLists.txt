@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(MultiDow LANGUAGES CXX)
+project(mdown LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,22 +10,23 @@ find_package(CURL REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 
-add_executable(multidow
+add_executable(mdown
     src/main.cpp
     src/downloader.cpp
+    src/curl_transport.cpp
     src/progress.cpp
     src/checksum.cpp
 )
 
-target_include_directories(multidow PRIVATE src)
-target_link_libraries(multidow PRIVATE
+target_include_directories(mdown PRIVATE src)
+target_link_libraries(mdown PRIVATE
     CURL::libcurl
     OpenSSL::SSL
     OpenSSL::Crypto
     Threads::Threads
 )
 
-install(TARGETS multidow RUNTIME DESTINATION bin)
+install(TARGETS mdown RUNTIME DESTINATION bin)
 
 # --- Tests ---
 
@@ -61,10 +62,12 @@ if(BUILD_TESTS)
 
     add_executable(gtest_all
         tests/gtest/test_all.cpp
+        tests/gtest/test_downloader.cpp
+        src/downloader.cpp
         src/progress.cpp
         src/checksum.cpp
     )
-    target_include_directories(gtest_all PRIVATE src)
+    target_include_directories(gtest_all PRIVATE src tests/mock)
     target_link_libraries(gtest_all PRIVATE
         gtest
         gtest_main

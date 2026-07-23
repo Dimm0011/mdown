@@ -1,6 +1,7 @@
 #include "downloader.h"
 #include "progress.h"
 #include "thread_pool.h"
+#include "curl_transport.h"
 #include <curl/curl.h>
 
 #include <iostream>
@@ -15,8 +16,8 @@
 #include <csignal>
 
 static void usage() {
-    std::cout << "MultiDow - multi-threaded file downloader with resume\n\n"
-              << "Usage: multidow [options] <URL...>\n\n"
+    std::cout << "mdown - multi-threaded file downloader with resume\n\n"
+              << "Usage: mdown [options] <URL...>\n\n"
               << "Options:\n"
               << "  -f, --file <path>        File with URLs (one per line)\n"
               << "  -o, --output <path>      Output file (single URL only)\n"
@@ -26,9 +27,9 @@ static void usage() {
               << "  -T, --timeout <sec>      Transfer timeout (default: 300)\n"
               << "  -h, --help               Show this help\n\n"
               << "Examples:\n"
-              << "  multidow https://example.com/file.zip\n"
-              << "  multidow https://url1.zip https://url2.zip -t 8\n"
-              << "  multidow -f urls.txt -t 4\n"
+              << "  mdown https://example.com/file.zip\n"
+              << "  mdown https://url1.zip https://url2.zip -t 8\n"
+              << "  mdown -f urls.txt -t 4\n"
               << std::endl;
 }
 
@@ -72,7 +73,7 @@ int main(int argc, char* argv[]) {
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "-h" || arg == "--help") { usage(); return 0; }
-        else if (arg == "-o" || arg == "--output") { if (i + 1 < argc) cfg.output_path = argv[++i]; }
+        else if (arg == "-o" || arg == "--output") { if (i + 1 < argc) { cfg.output_path = argv[++i]; cfg.output_explicit = true; } }
         else if (arg == "-t" || arg == "--threads") { if (i + 1 < argc) cfg.num_threads = std::atoi(argv[++i]); }
         else if (arg == "-c" || arg == "--checksum") { if (i + 1 < argc) { cfg.expected_checksum = argv[++i]; cfg.verify = true; } }
         else if (arg == "-r" || arg == "--retries") { if (i + 1 < argc) cfg.max_retries = std::atoi(argv[++i]); }
@@ -97,6 +98,10 @@ int main(int argc, char* argv[]) {
 
     curl_global_init(CURL_GLOBAL_ALL);
 
+    multidow::CurlTransportConfig tc;
+    tc.timeout_sec = cfg.timeout;
+    multidow::CurlTransport transport(tc);
+
     multidow::ProgressManager pm;
     multidow::ThreadPool pool;
     std::vector<std::unique_ptr<multidow::Downloader>> downloaders;
@@ -120,7 +125,7 @@ int main(int argc, char* argv[]) {
             if (urls.size() > 1) c.output_path = "";
             return c;
         }();
-        downloaders.push_back(std::make_unique<multidow::Downloader>(std::move(config), pm, pool));
+        downloaders.push_back(std::make_unique<multidow::Downloader>(std::move(config), pm, pool, transport));
     }
 
     for (auto& dl : downloaders) {

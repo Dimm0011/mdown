@@ -3,7 +3,6 @@
 #include "file_handle.h"
 #include "thread_pool.h"
 
-#include <curl/curl.h>
 #include <iostream>
 #include <fstream>
 #include <format>
@@ -17,44 +16,19 @@ namespace fs = std::filesystem;
 
 namespace multidow {
 
-static const char* USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) MultiDow/1.0";
-
-static int curl_debug_cb(CURL*, curl_infotype type, char*, size_t size, void*) {
-    if (type == CURLINFO_TEXT)
-        return 0;
-    if (type == CURLINFO_HEADER_IN || type == CURLINFO_HEADER_OUT)
-        return 0;
-    (void)size;
-    return 0;
-}
-
-struct CurlHeader {
-    uint64_t file_size = 0;
-    bool range_supported = false;
-    std::string filename;
-};
-
-static size_t header_cb(char* buf, size_t /*size*/, size_t nitems, void* userp) {
-    auto* hdr = static_cast<CurlHeader*>(userp);
-    std::string h(buf, nitems);
-    if (h.find("Content-Length:") != std::string::npos) {
-        std::string v = h.substr(h.find(":") + 1);
-        v.erase(0, v.find_first_not_of(" "));
-        v.erase(v.find_last_not_of(" \r\n") + 1);
-        try { hdr->file_size = std::stoull(v); } catch (...) {}
+static std::string sanitize_filename(const std::string& name) {
+    std::string result;
+    result.reserve(name.size());
+    for (char c : name) {
+        if (c == '/' || c == '\\' || c == '\0' || c == ':')
+            continue;
+        if (c == '.' && (result.empty() || result.back() == '.'))
+            continue;
+        result.push_back(c);
     }
-    if (h.find("Accept-Ranges: bytes") != std::string::npos)
-        hdr->range_supported = true;
-    if (h.find("Content-Disposition:") != std::string::npos) {
-        auto pos = h.find("filename=");
-        if (pos != std::string::npos) {
-            std::string fn = h.substr(pos + 9);
-            fn.erase(0, fn.find_first_not_of(" \""));
-            fn.erase(fn.find_last_not_of(" \"\r\n") + 1);
-            if (!fn.empty()) hdr->filename = fn;
-        }
-    }
-    return nitems;
+    while (!result.empty() && result.back() == '.')
+        result.pop_back();
+    return result.empty() ? "download" : result;
 }
 
 struct ChunkCtx {
@@ -82,7 +56,7 @@ static size_t chunk_write_cb(char* ptr, size_t sz, size_t nm, void* ud) {
     return bytes;
 }
 
-static int chunk_xfer_cb(void* ud, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+static int chunk_progress_cb(void* ud, long long, long long, long long, long long) {
     auto* c = static_cast<ChunkCtx*>(ud);
     if (g_stop.stop_requested()) return 1;
     c->pm->update_thread(c->file_id, c->thread_id, c->bytes_written, c->chunk_total);
@@ -106,7 +80,7 @@ static size_t single_write_cb(char* ptr, size_t sz, size_t nm, void* ud) {
     return written;
 }
 
-static int single_xfer_cb(void* ud, curl_off_t dltotal, curl_off_t dlnow, curl_off_t, curl_off_t) {
+static int single_progress_cb(void* ud, long long dltotal, long long dlnow, long long, long long) {
     auto* c = static_cast<SingleCtx*>(ud);
     if (g_stop.stop_requested()) return 1;
     uint64_t total = (dltotal > 0) ? (uint64_t)dltotal : c->expected_total;
@@ -115,22 +89,8 @@ static int single_xfer_cb(void* ud, curl_off_t dltotal, curl_off_t dlnow, curl_o
     return 0;
 }
 
-void Downloader::configure_curl(CURL* curl) {
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, USER_AGENT);
-    curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "");
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)config_.timeout);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
-    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1024L);
-    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
-    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10L);
-    curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, curl_debug_cb);
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
-}
-
-Downloader::Downloader(const DownloadConfig& config, ProgressManager& pm, ThreadPool& pool)
-    : config_(config), pm_(pm), pool_(pool) {
+Downloader::Downloader(const DownloadConfig& config, ProgressManager& pm, ThreadPool& pool, ITransport& transport)
+    : config_(config), pm_(pm), pool_(pool), transport_(transport) {
     if (config_.output_path.empty())
         config_.output_path = extract_filename(config_.url);
 }
@@ -148,29 +108,13 @@ std::string Downloader::meta_path() const { return config_.output_path + ".mdow"
 
 uint64_t Downloader::probe_server() {
     for (int attempt = 0; attempt <= config_.max_retries; attempt++) {
-        CurlHeader hdr;
-        CURL* curl = curl_easy_init();
-        if (!curl) return 0;
+        ProbeResult result = transport_.head(config_.url);
 
-        configure_curl(curl);
-        curl_easy_setopt(curl, CURLOPT_URL, config_.url.c_str());
-        curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
-        curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_cb);
-        curl_easy_setopt(curl, CURLOPT_HEADERDATA, &hdr);
-
-        CURLcode res = curl_easy_perform(curl);
-        long code = 0;
-        if (res == CURLE_OK)
-            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
-        curl_easy_cleanup(curl);
-
-        if (res == CURLE_OK && code == 206) hdr.range_supported = true;
-
-        if (res == CURLE_OK && (code == 200 || code == 206)) {
-            file_size_ = hdr.file_size;
-            range_supported_ = hdr.range_supported;
-            if (!hdr.filename.empty())
-                config_.output_path = hdr.filename;
+        if (result.ok) {
+            file_size_ = result.file_size;
+            range_supported_ = result.range_supported;
+            if (!result.filename.empty() && !config_.output_explicit)
+                config_.output_path = sanitize_filename(result.filename);
             return file_size_;
         }
 
@@ -184,29 +128,43 @@ uint64_t Downloader::probe_server() {
 }
 
 bool Downloader::run() {
-    probe_server();
+    try {
+        probe_server();
 
-    if (file_size_ == 0) {
-        range_supported_ = false;
-        config_.num_threads = 1;
+        if (file_size_ == 0) {
+            range_supported_ = false;
+            config_.num_threads = 1;
+        }
+        if (!range_supported_) config_.num_threads = 1;
+
+        file_id_ = pm_.add_file(config_.output_path, file_size_, config_.num_threads);
+
+        bool ok = start_download();
+
+        if (ok && config_.verify && !config_.expected_checksum.empty()) {
+            pm_.set_file_done(file_id_, false, "Verifying...");
+            if (verify_checksum(config_.output_path, config_.expected_checksum))
+                pm_.set_file_done(file_id_, true, "Done (checksum OK)");
+            else
+                pm_.set_file_done(file_id_, false, "FAILED (checksum mismatch)");
+        } else if (ok) {
+            pm_.set_file_done(file_id_, true, "Done");
+        }
+        pm_.redraw();
+        return ok;
+    } catch (const std::exception& e) {
+        if (file_id_ >= 0) {
+            pm_.set_file_done(file_id_, false, std::string("Error: ") + e.what());
+            pm_.redraw();
+        }
+        return false;
+    } catch (...) {
+        if (file_id_ >= 0) {
+            pm_.set_file_done(file_id_, false, "Unknown error");
+            pm_.redraw();
+        }
+        return false;
     }
-    if (!range_supported_) config_.num_threads = 1;
-
-    file_id_ = pm_.add_file(config_.output_path, file_size_, config_.num_threads);
-
-    bool ok = start_download();
-
-    if (ok && config_.verify && !config_.expected_checksum.empty()) {
-        pm_.set_file_done(file_id_, false, "Verifying...");
-        if (verify_checksum(config_.output_path, config_.expected_checksum))
-            pm_.set_file_done(file_id_, true, "Done (checksum OK)");
-        else
-            pm_.set_file_done(file_id_, false, "FAILED (checksum mismatch)");
-    } else if (ok) {
-        pm_.set_file_done(file_id_, true, "Done");
-    }
-    pm_.redraw();
-    return ok;
 }
 
 static int backoff_seconds(int attempt) {
@@ -262,9 +220,6 @@ bool Downloader::start_download() {
             for (int retry = 0; retry <= config_.max_retries; retry++) {
                 if (g_stop.stop_requested()) break;
 
-                CURL* curl = curl_easy_init();
-                if (!curl) { std::this_thread::sleep_for(std::chrono::seconds(1)); continue; }
-
                 uint64_t bytes_already = 0;
                 {
                     std::lock_guard lock(fp_mtx);
@@ -276,25 +231,17 @@ bool Downloader::start_download() {
                 uint64_t resume_from = base_start + bytes_already;
                 uint64_t remaining = chunk_total - bytes_already;
 
-                if (remaining == 0) { success = true; curl_easy_cleanup(curl); break; }
+                if (remaining == 0) { success = true; break; }
 
                 ChunkCtx ctx{&pm_, file_id_, i, chunk_total, bytes_already, fp_raw, resume_from, &fp_mtx};
 
-                configure_curl(curl);
-                curl_easy_setopt(curl, CURLOPT_URL, config_.url.c_str());
-                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, chunk_write_cb);
-                curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
-                curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, chunk_xfer_cb);
-                curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &ctx);
-                curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+                std::optional<std::pair<uint64_t, uint64_t>> range =
+                    std::make_pair(resume_from, base_start + chunk_total - 1);
 
-                std::string range = std::to_string(resume_from) + "-" + std::to_string(base_start + chunk_total - 1);
-                curl_easy_setopt(curl, CURLOPT_RANGE, range.c_str());
+                bool ok = transport_.download(config_.url, range,
+                    &ctx, chunk_write_cb, &ctx, chunk_progress_cb);
 
-                CURLcode res = curl_easy_perform(curl);
-                curl_easy_cleanup(curl);
-
-                if (res == CURLE_OK) {
+                if (ok) {
                     success = true;
                     break;
                 }
@@ -359,33 +306,19 @@ bool Downloader::download_single() {
 
         SingleCtx ctx{fp.get(), &pm_, file_id_, resume_offset, file_size_};
 
-        CURL* curl = curl_easy_init();
-        if (!curl) {
-            pm_.set_file_done(file_id_, false, "CURL init failed");
-            return false;
-        }
-        configure_curl(curl);
-        curl_easy_setopt(curl, CURLOPT_URL, config_.url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, single_write_cb);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
-        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, single_xfer_cb);
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &ctx);
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+        std::optional<std::pair<uint64_t, uint64_t>> range;
+        if (resume_offset > 0 && file_size_ > 0)
+            range = std::make_pair(resume_offset, file_size_ - 1);
 
-        if (resume_offset > 0 && file_size_ > 0) {
-            std::string range = std::to_string(resume_offset) + "-" + std::to_string(file_size_ - 1);
-            curl_easy_setopt(curl, CURLOPT_RANGE, range.c_str());
-        }
-
-        CURLcode res = curl_easy_perform(curl);
-        curl_easy_cleanup(curl);
+        bool ok = transport_.download(config_.url, range,
+            &ctx, single_write_cb, &ctx, single_progress_cb);
 
         if (g_stop.stop_requested()) {
             save_metadata();
             return false;
         }
 
-        if (res == CURLE_OK) {
+        if (ok) {
             pm_.mark_thread_finished(file_id_, 0);
             fs::remove(meta_path());
             return true;
