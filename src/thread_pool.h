@@ -28,7 +28,9 @@ class ThreadPool {
     auto submit(F&& f, Args&&... args) -> std::future<std::invoke_result_t<F, Args...>> {
         using R = std::invoke_result_t<F, Args...>;
         auto task = std::make_shared<std::packaged_task<R()>>(
-            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+            [fn = std::forward<F>(f), ...args = std::forward<Args>(args)]() mutable {
+                return fn(std::move(args)...);
+            });
         auto future = task->get_future();
         {
             std::lock_guard lock(mtx_);
