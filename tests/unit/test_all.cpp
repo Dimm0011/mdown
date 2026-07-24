@@ -1,30 +1,46 @@
-#include "format.h"
 #include "checksum.h"
+#include "format.h"
 #include "progress.h"
 
+#include <fcntl.h>
+#include <unistd.h>
 #include <cassert>
 #include <cstdio>
-#include <fcntl.h>
 #include <fstream>
 #include <iostream>
 #include <string>
-#include <unistd.h>
 #include <vector>
 
 static int tests_run = 0;
 static int tests_passed = 0;
 
-#define TEST(name) \
-    do { tests_run++; std::cout << "  " << #name << "... "; } while(0)
+#define TEST(name)                            \
+    do {                                      \
+        tests_run++;                          \
+        std::cout << "  " << #name << "... "; \
+    } while (0)
 
-#define PASS() \
-    do { tests_passed++; std::cout << "ok" << std::endl; } while(0)
+#define PASS()                          \
+    do {                                \
+        tests_passed++;                 \
+        std::cout << "ok" << std::endl; \
+    } while (0)
 
-#define ASSERT_EQ(a, b) \
-    do { if ((a) != (b)) { std::cout << "FAIL (" << (a) << " != " << (b) << ")" << std::endl; return; } } while(0)
+#define ASSERT_EQ(a, b)                                                        \
+    do {                                                                       \
+        if ((a) != (b)) {                                                      \
+            std::cout << "FAIL (" << (a) << " != " << (b) << ")" << std::endl; \
+            return;                                                            \
+        }                                                                      \
+    } while (0)
 
-#define ASSERT_TRUE(x) \
-    do { if (!(x)) { std::cout << "FAIL" << std::endl; return; } } while(0)
+#define ASSERT_TRUE(x)                        \
+    do {                                      \
+        if (!(x)) {                           \
+            std::cout << "FAIL" << std::endl; \
+            return;                           \
+        }                                     \
+    } while (0)
 
 static std::string temp_file(const std::string& content) {
     char path[] = "/tmp/multidow_test_XXXXXX";
@@ -80,19 +96,19 @@ static void test_format_speed() {
 }
 
 static void test_make_bar_empty() {
-    TEST(make_bar 0%);
+    TEST(make_bar 0 %);
     ASSERT_EQ(multidow::make_bar(10, 0.0), "[..........]");
     PASS();
 }
 
 static void test_make_bar_full() {
-    TEST(make_bar 100%);
+    TEST(make_bar 100 %);
     ASSERT_EQ(multidow::make_bar(10, 1.0), "[##########]");
     PASS();
 }
 
 static void test_make_bar_half() {
-    TEST(make_bar 50%);
+    TEST(make_bar 50 %);
     ASSERT_EQ(multidow::make_bar(10, 0.5), "[#####.....]");
     PASS();
 }
@@ -126,7 +142,8 @@ static void test_sha256_hello() {
 static void test_verify_checksum_ok() {
     TEST(verify_checksum match);
     auto path = temp_file("hello");
-    ASSERT_TRUE(multidow::verify_checksum(path, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"));
+    ASSERT_TRUE(multidow::verify_checksum(
+        path, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"));
     std::remove(path.c_str());
     PASS();
 }
@@ -134,7 +151,8 @@ static void test_verify_checksum_ok() {
 static void test_verify_checksum_fail() {
     TEST(verify_checksum mismatch);
     auto path = temp_file("hello");
-    ASSERT_TRUE(!multidow::verify_checksum(path, "0000000000000000000000000000000000000000000000000000000000000000"));
+    ASSERT_TRUE(!multidow::verify_checksum(
+        path, "0000000000000000000000000000000000000000000000000000000000000000"));
     std::remove(path.c_str());
     PASS();
 }
@@ -196,7 +214,7 @@ static void test_pm_error_state() {
 }
 
 static void test_pm_invalid_ids() {
-    TEST(pm invalid file/thread ids);
+    TEST(pm invalid file / thread ids);
     multidow::ProgressManager pm;
     pm.add_file("test.zip", 1000, 2);
     pm.update_thread(99, 0, 100, 100);

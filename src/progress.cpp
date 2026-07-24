@@ -1,9 +1,9 @@
 #include "progress.h"
-#include "format.h"
-#include <iostream>
-#include <format>
-#include <cmath>
 #include <unistd.h>
+#include <cmath>
+#include <format>
+#include <iostream>
+#include "format.h"
 
 namespace multidow {
 
@@ -13,8 +13,7 @@ volatile sig_atomic_t g_signal_received = 0;
 static const int MIN_REDRAW_MS = 100;
 static const int SPEED_WINDOW_SEC = 2;
 
-ProgressManager::ProgressManager()
-    : last_redraw_(std::chrono::steady_clock::now()) {
+ProgressManager::ProgressManager() : last_redraw_(std::chrono::steady_clock::now()) {
     terminal_supported_ = isatty(STDERR_FILENO);
 }
 
@@ -31,7 +30,8 @@ int ProgressManager::add_file(const std::string& filename, uint64_t file_size, i
     return id;
 }
 
-void ProgressManager::update_thread(int file_id, int thread_id, uint64_t downloaded, uint64_t total) {
+void ProgressManager::update_thread(int file_id, int thread_id, uint64_t downloaded,
+                                    uint64_t total) {
     std::lock_guard<std::mutex> lock(mtx_);
     if (file_id < 0 || file_id >= (int)files_.size()) return;
     auto& f = files_[file_id];
@@ -42,14 +42,12 @@ void ProgressManager::update_thread(int file_id, int thread_id, uint64_t downloa
     }
 
     uint64_t total_down = 0;
-    for (auto& th : f.threads)
-        total_down += th.bytes_downloaded;
+    for (auto& th : f.threads) total_down += th.bytes_downloaded;
 
     auto now = std::chrono::steady_clock::now();
     f.speed_history.push_back({now, total_down});
 
-    while (f.speed_history.size() > 20)
-        f.speed_history.pop_front();
+    while (f.speed_history.size() > 20) f.speed_history.pop_front();
 
     dirty_ = true;
 }
@@ -59,8 +57,7 @@ void ProgressManager::mark_thread_active(int file_id, int thread_id) {
         std::lock_guard<std::mutex> lock(mtx_);
         if (file_id < 0 || file_id >= (int)files_.size()) return;
         auto& t = files_[file_id].threads;
-        if (thread_id >= 0 && thread_id < (int)t.size())
-            t[thread_id].active = true;
+        if (thread_id >= 0 && thread_id < (int)t.size()) t[thread_id].active = true;
     }
     do_redraw();
 }
@@ -119,15 +116,13 @@ static double compute_speed(const std::deque<SpeedSample>& history) {
         double dt = std::chrono::duration<double>(now - it->time).count();
         if (dt >= SPEED_WINDOW_SEC) {
             double elapsed = std::chrono::duration<double>(now - it->time).count();
-            if (elapsed > 0)
-                return (double)(latest_bytes - it->bytes) / elapsed;
+            if (elapsed > 0) return (double)(latest_bytes - it->bytes) / elapsed;
             return 0;
         }
     }
 
     double elapsed = std::chrono::duration<double>(now - history.front().time).count();
-    if (elapsed > 0.1)
-        return (double)(latest_bytes - history.front().bytes) / elapsed;
+    if (elapsed > 0.1) return (double)(latest_bytes - history.front().bytes) / elapsed;
     return 0;
 }
 
@@ -136,7 +131,8 @@ void ProgressManager::do_redraw() {
     if (!terminal_supported_) return;
 
     auto now = std::chrono::steady_clock::now();
-    auto ms_since_last = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_redraw_).count();
+    auto ms_since_last =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - last_redraw_).count();
 
     bool is_terminal_event = false;
     for (auto& f : files_) {
@@ -148,8 +144,7 @@ void ProgressManager::do_redraw() {
 
     std::string out;
 
-    if (prev_lines_ > 0)
-        out = std::format("\r\033[{}A", prev_lines_);
+    if (prev_lines_ > 0) out = std::format("\r\033[{}A", prev_lines_);
 
     int lines = 0;
 
@@ -200,8 +195,7 @@ void ProgressManager::do_redraw() {
     }
 
     if (lines < prev_lines_) {
-        for (int i = 0; i < prev_lines_ - lines; i++)
-            out += "\r\033[2K\n";
+        for (int i = 0; i < prev_lines_ - lines; i++) out += "\r\033[2K\n";
     }
 
     std::cerr << out << std::flush;
@@ -215,4 +209,4 @@ bool ProgressManager::all_done() const {
     return true;
 }
 
-}
+}  // namespace multidow

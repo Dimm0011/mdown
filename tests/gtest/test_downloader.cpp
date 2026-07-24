@@ -1,20 +1,20 @@
 #include <gtest/gtest.h>
 #include "downloader.h"
-#include "thread_pool.h"
-#include "progress.h"
 #include "mock_transport.h"
+#include "progress.h"
+#include "thread_pool.h"
 
-#include <cstdio>
-#include <fstream>
 #include <unistd.h>
+#include <cstdio>
 #include <filesystem>
+#include <fstream>
 
 namespace fs = std::filesystem;
 using namespace multidow;
 using multidow::mock::MockTransport;
 
 class DownloaderTest : public ::testing::Test {
-protected:
+   protected:
     ProgressManager pm;
     ThreadPool pool;
     MockTransport transport;
@@ -63,8 +63,7 @@ TEST_F(DownloaderTest, ProbeSuccess_SingleThread) {
     EXPECT_EQ(transport.download_count, 1);
 
     std::ifstream f(tmp_path, std::ios::binary);
-    std::string content((std::istreambuf_iterator<char>(f)),
-                        std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     EXPECT_EQ(content, "ABC");
 }
 
@@ -77,8 +76,7 @@ TEST_F(DownloaderTest, ProbeFailure_FallbackToSingleThread) {
         transport.probe_responses.push_back(pr);
     }
 
-    for (int i = 0; i < 3; i++)
-        transport.download_results.push_back(false);
+    for (int i = 0; i < 3; i++) transport.download_results.push_back(false);
 
     Downloader dl(cfg, pm, pool, transport);
     EXPECT_FALSE(dl.run());
@@ -212,8 +210,7 @@ TEST_F(DownloaderTest, DownloadFailure_RetriesExhausted) {
     pr.range_supported = false;
     transport.probe_responses.push_back(pr);
 
-    for (int i = 0; i < 3; i++)
-        transport.download_results.push_back(false);
+    for (int i = 0; i < 3; i++) transport.download_results.push_back(false);
 
     Downloader dl(cfg, pm, pool, transport);
     EXPECT_FALSE(dl.run());
@@ -251,8 +248,7 @@ TEST_F(DownloaderTest, RangeSupported_MultiThread) {
     pr.range_supported = true;
     transport.probe_responses.push_back(pr);
 
-    for (int i = 0; i < 4; i++)
-        transport.download_results.push_back(true);
+    for (int i = 0; i < 4; i++) transport.download_results.push_back(true);
 
     Downloader dl(cfg, pm, pool, transport);
     EXPECT_TRUE(dl.run());
@@ -270,8 +266,7 @@ TEST_F(DownloaderTest, RangeSupported_AllChunksFail) {
     pr.range_supported = true;
     transport.probe_responses.push_back(pr);
 
-    for (int i = 0; i < 6; i++)
-        transport.download_results.push_back(false);
+    for (int i = 0; i < 6; i++) transport.download_results.push_back(false);
 
     Downloader dl(cfg, pm, pool, transport);
     EXPECT_FALSE(dl.run());
@@ -325,9 +320,9 @@ TEST_F(DownloaderTest, ExceptionSafety_TransportThrows) {
         ProbeResult head(const std::string&) override {
             throw std::runtime_error("network boom");
         }
-        bool download(const std::string&, std::optional<std::pair<uint64_t, uint64_t>>,
-            void*, size_t (*)(char*, size_t, size_t, void*),
-            void*, int (*)(void*, long long, long long, long long, long long)) override {
+        bool download(const std::string&, std::optional<std::pair<uint64_t, uint64_t>>, void*,
+                      size_t (*)(char*, size_t, size_t, void*), void*,
+                      int (*)(void*, long long, long long, long long, long long)) override {
             return false;
         }
     } thrower;
@@ -336,9 +331,7 @@ TEST_F(DownloaderTest, ExceptionSafety_TransportThrows) {
     cfg.num_threads = 1;
 
     Downloader dl(cfg, pm, pool, thrower);
-    EXPECT_NO_THROW({
-        EXPECT_FALSE(dl.run());
-    });
+    EXPECT_NO_THROW({ EXPECT_FALSE(dl.run()); });
 }
 
 TEST_F(DownloaderTest, MultipleFiles_SameTransport) {

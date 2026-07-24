@@ -1,10 +1,10 @@
 #pragma once
 
-#include "progress.h"
-#include "transport.h"
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
+#include "progress.h"
+#include "transport.h"
 
 namespace multidow {
 
@@ -22,13 +22,14 @@ struct DownloadConfig {
 };
 
 class Downloader {
-public:
-    Downloader(const DownloadConfig& config, ProgressManager& pm, ThreadPool& pool, ITransport& transport);
+   public:
+    Downloader(const DownloadConfig& config, ProgressManager& pm, ThreadPool& pool,
+               ITransport& transport);
     ~Downloader() = default;
 
     bool run();
 
-private:
+   private:
     DownloadConfig config_;
     ProgressManager& pm_;
     ThreadPool& pool_;
@@ -45,4 +46,4 @@ private:
     void save_metadata();
 };
 
-}
+}  // namespace multidow

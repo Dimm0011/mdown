@@ -1,13 +1,13 @@
 #pragma once
 
-#include <string>
-#include <vector>
+#include <chrono>
+#include <csignal>
+#include <cstdint>
 #include <deque>
 #include <mutex>
 #include <stop_token>
-#include <cstdint>
-#include <csignal>
-#include <chrono>
+#include <string>
+#include <vector>
 
 namespace multidow {
 
@@ -40,7 +40,7 @@ struct FileState {
 };
 
 class ProgressManager {
-public:
+   public:
     ProgressManager();
     ~ProgressManager() = default;
 
@@ -55,7 +55,7 @@ public:
 
     bool all_done() const;
 
-private:
+   private:
     std::vector<FileState> files_;
     mutable std::mutex mtx_;
     int prev_lines_ = 0;
@@ -66,4 +66,4 @@ private:
     void do_redraw();
 };
 
-}
+}  // namespace multidow

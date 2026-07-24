@@ -1,34 +1,34 @@
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <future>
-#include <queue>
-#include <vector>
-#include <thread>
 #include <mutex>
-#include <condition_variable>
-#include <atomic>
+#include <queue>
+#include <thread>
+#include <vector>
 
 namespace multidow {
 
 class ThreadPool {
-public:
+   public:
     explicit ThreadPool(size_t threads = std::thread::hardware_concurrency()) {
-        for (size_t i = 0; i < threads; i++)
-            workers_.emplace_back([this] { worker_loop(); });
+        for (size_t i = 0; i < threads; i++) workers_.emplace_back([this] { worker_loop(); });
     }
 
-    ~ThreadPool() { shutdown(); }
+    ~ThreadPool() {
+        shutdown();
+    }
 
     ThreadPool(const ThreadPool&) = delete;
     ThreadPool& operator=(const ThreadPool&) = delete;
 
-    template<typename F, typename... Args>
+    template <typename F, typename... Args>
     auto submit(F&& f, Args&&... args) -> std::future<std::invoke_result_t<F, Args...>> {
         using R = std::invoke_result_t<F, Args...>;
         auto task = std::make_shared<std::packaged_task<R()>>(
-            std::bind(std::forward<F>(f), std::forward<Args>(args)...)
-        );
+            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
         auto future = task->get_future();
         {
             std::lock_guard lock(mtx_);
@@ -51,9 +51,11 @@ public:
         }
     }
 
-    [[nodiscard]] size_t size() const { return workers_.size(); }
+    [[nodiscard]] size_t size() const {
+        return workers_.size();
+    }
 
-private:
+   private:
     void worker_loop() {
         while (true) {
             std::function<void()> task;
@@ -75,4 +77,4 @@ private:
     bool stop_ = false;
 };
 
-} // namespace multidow
+}  // namespace multidow

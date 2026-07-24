@@ -1,8 +1,8 @@
 #pragma once
 
-#include "transport.h"
 #include <curl/curl.h>
 #include <string>
+#include "transport.h"
 
 namespace multidow {
 
@@ -16,23 +16,19 @@ struct CurlTransportConfig {
 };
 
 class CurlTransport : public ITransport {
-public:
+   public:
     explicit CurlTransport(const CurlTransportConfig& config = {});
 
     ProbeResult head(const std::string& url) override;
 
-    bool download(
-        const std::string& url,
-        std::optional<std::pair<uint64_t, uint64_t>> range,
-        void* write_userp,
-        size_t (*write_cb)(char*, size_t, size_t, void*),
-        void* progress_userp,
-        int (*progress_cb)(void*, long long, long long, long long, long long)
-    ) override;
+    bool download(const std::string& url, std::optional<std::pair<uint64_t, uint64_t>> range,
+                  void* write_userp, size_t (*write_cb)(char*, size_t, size_t, void*),
+                  void* progress_userp,
+                  int (*progress_cb)(void*, long long, long long, long long, long long)) override;
 
-private:
+   private:
     CurlTransportConfig config_;
     void configure(CURL* curl);
 };
 
-}
+}  // namespace multidow

@@ -5,10 +5,8 @@
 namespace multidow {
 
 static int curl_debug_cb(CURL*, curl_infotype type, char*, size_t size, void*) {
-    if (type == CURLINFO_TEXT)
-        return 0;
-    if (type == CURLINFO_HEADER_IN || type == CURLINFO_HEADER_OUT)
-        return 0;
+    if (type == CURLINFO_TEXT) return 0;
+    if (type == CURLINFO_HEADER_IN || type == CURLINFO_HEADER_OUT) return 0;
     (void)size;
     return 0;
 }
@@ -26,10 +24,12 @@ static size_t header_cb(char* buf, size_t /*size*/, size_t nitems, void* userp) 
         std::string v = h.substr(h.find(":") + 1);
         v.erase(0, v.find_first_not_of(" "));
         v.erase(v.find_last_not_of(" \r\n") + 1);
-        try { hdr->file_size = std::stoull(v); } catch (...) {}
+        try {
+            hdr->file_size = std::stoull(v);
+        } catch (...) {
+        }
     }
-    if (h.find("Accept-Ranges: bytes") != std::string::npos)
-        hdr->range_supported = true;
+    if (h.find("Accept-Ranges: bytes") != std::string::npos) hdr->range_supported = true;
     if (h.find("Content-Disposition:") != std::string::npos) {
         auto pos = h.find("filename=");
         if (pos != std::string::npos) {
@@ -54,15 +54,15 @@ static size_t bridge_write_cb(char* ptr, size_t sz, size_t nm, void* ud) {
     return b->write_cb(ptr, sz, nm, b->write_userp);
 }
 
-static int bridge_progress_cb(void* ud, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
+static int bridge_progress_cb(void* ud, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal,
+                              curl_off_t ulnow) {
     auto* b = static_cast<DownloadBridge*>(ud);
-    return b->progress_cb(b->progress_userp,
-        static_cast<long long>(dltotal), static_cast<long long>(dlnow),
-        static_cast<long long>(ultotal), static_cast<long long>(ulnow));
+    return b->progress_cb(b->progress_userp, static_cast<long long>(dltotal),
+                          static_cast<long long>(dlnow), static_cast<long long>(ultotal),
+                          static_cast<long long>(ulnow));
 }
 
-CurlTransport::CurlTransport(const CurlTransportConfig& config)
-    : config_(config) {}
+CurlTransport::CurlTransport(const CurlTransportConfig& config) : config_(config) {}
 
 void CurlTransport::configure(CURL* curl) {
     curl_easy_setopt(curl, CURLOPT_USERAGENT, config_.user_agent.c_str());
@@ -93,8 +93,7 @@ ProbeResult CurlTransport::head(const std::string& url) {
 
     CURLcode res = curl_easy_perform(curl);
     long code = 0;
-    if (res == CURLE_OK)
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+    if (res == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
     curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) return result;
@@ -108,14 +107,11 @@ ProbeResult CurlTransport::head(const std::string& url) {
     return result;
 }
 
-bool CurlTransport::download(
-    const std::string& url,
-    std::optional<std::pair<uint64_t, uint64_t>> range,
-    void* write_userp,
-    size_t (*write_cb)(char*, size_t, size_t, void*),
-    void* progress_userp,
-    int (*progress_cb)(void*, long long, long long, long long, long long)
-) {
+bool CurlTransport::download(const std::string& url,
+                             std::optional<std::pair<uint64_t, uint64_t>> range, void* write_userp,
+                             size_t (*write_cb)(char*, size_t, size_t, void*), void* progress_userp,
+                             int (*progress_cb)(void*, long long, long long, long long,
+                                                long long)) {
     CURL* curl = curl_easy_init();
     if (!curl) return false;
 
@@ -139,4 +135,4 @@ bool CurlTransport::download(
     return res == CURLE_OK;
 }
 
-}
+}  // namespace multidow

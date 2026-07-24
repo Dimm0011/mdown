@@ -1,14 +1,14 @@
 #define CATCH_CONFIG_MAIN
-#include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_session.hpp>
+#include <catch2/catch_test_macros.hpp>
 
-#include "format.h"
 #include "checksum.h"
+#include "format.h"
 #include "progress.h"
 
+#include <unistd.h>
 #include <cstdio>
 #include <fstream>
-#include <unistd.h>
 
 using namespace multidow;
 
@@ -119,7 +119,8 @@ TEST_CASE("verify match", "[checksum]") {
 
 TEST_CASE("verify mismatch", "[checksum]") {
     auto p = make_temp("hello");
-    REQUIRE_FALSE(verify_checksum(p, "0000000000000000000000000000000000000000000000000000000000000000"));
+    REQUIRE_FALSE(
+        verify_checksum(p, "0000000000000000000000000000000000000000000000000000000000000000"));
     std::remove(p.c_str());
 }
 
@@ -260,8 +261,7 @@ TEST_CASE("redraw multiple files", "[progress]") {
     }
     REQUIRE_NOTHROW(pm.redraw());
     for (int i = 0; i < 5; i++) {
-        for (int t = 0; t < 3; t++)
-            pm.mark_thread_finished(i, t);
+        for (int t = 0; t < 3; t++) pm.mark_thread_finished(i, t);
         pm.set_file_done(i, true, "Done");
     }
     REQUIRE_NOTHROW(pm.redraw());

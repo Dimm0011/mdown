@@ -3,14 +3,14 @@
 #include "file_handle.h"
 #include "thread_pool.h"
 
-#include <iostream>
-#include <fstream>
+#include <chrono>
+#include <filesystem>
 #include <format>
+#include <fstream>
+#include <iostream>
+#include <mutex>
 #include <stop_token>
 #include <thread>
-#include <mutex>
-#include <filesystem>
-#include <chrono>
 
 namespace fs = std::filesystem;
 
@@ -20,14 +20,11 @@ static std::string sanitize_filename(const std::string& name) {
     std::string result;
     result.reserve(name.size());
     for (char c : name) {
-        if (c == '/' || c == '\\' || c == '\0' || c == ':')
-            continue;
-        if (c == '.' && (result.empty() || result.back() == '.'))
-            continue;
+        if (c == '/' || c == '\\' || c == '\0' || c == ':') continue;
+        if (c == '.' && (result.empty() || result.back() == '.')) continue;
         result.push_back(c);
     }
-    while (!result.empty() && result.back() == '.')
-        result.pop_back();
+    while (!result.empty() && result.back() == '.') result.pop_back();
     return result.empty() ? "download" : result;
 }
 
@@ -89,10 +86,10 @@ static int single_progress_cb(void* ud, long long dltotal, long long dlnow, long
     return 0;
 }
 
-Downloader::Downloader(const DownloadConfig& config, ProgressManager& pm, ThreadPool& pool, ITransport& transport)
+Downloader::Downloader(const DownloadConfig& config, ProgressManager& pm, ThreadPool& pool,
+                       ITransport& transport)
     : config_(config), pm_(pm), pool_(pool), transport_(transport) {
-    if (config_.output_path.empty())
-        config_.output_path = extract_filename(config_.url);
+    if (config_.output_path.empty()) config_.output_path = extract_filename(config_.url);
 }
 
 std::string Downloader::extract_filename(const std::string& url) const {
@@ -104,7 +101,9 @@ std::string Downloader::extract_filename(const std::string& url) const {
     return p.empty() ? "download" : p;
 }
 
-std::string Downloader::meta_path() const { return config_.output_path + ".mdow"; }
+std::string Downloader::meta_path() const {
+    return config_.output_path + ".mdow";
+}
 
 uint64_t Downloader::probe_server() {
     for (int attempt = 0; attempt <= config_.max_retries; attempt++) {
@@ -186,8 +185,7 @@ bool Downloader::start_download() {
         fs::remove(meta_path());
     }
 
-    if (config_.num_threads <= 1 || !range_supported_ || file_size_ == 0)
-        return download_single();
+    if (config_.num_threads <= 1 || !range_supported_ || file_size_ == 0) return download_single();
 
     FileHandle fp(output, resume ? "r+b" : "wb");
     if (!fp) {
@@ -209,10 +207,12 @@ bool Downloader::start_download() {
 
     for (int i = 0; i < config_.num_threads; i++) {
         uint64_t base_start = (uint64_t)i * chunk_size;
-        uint64_t end = (i == config_.num_threads - 1) ? file_size_ - 1 : (uint64_t)(i + 1) * chunk_size - 1;
+        uint64_t end =
+            (i == config_.num_threads - 1) ? file_size_ - 1 : (uint64_t)(i + 1) * chunk_size - 1;
         uint64_t chunk_total = end - base_start + 1;
 
-        futures.push_back(pool_.submit([this, i, base_start, chunk_total, fp_raw = fp.get(), &fp_mtx, &success_count]() -> bool {
+        futures.push_back(pool_.submit([this, i, base_start, chunk_total, fp_raw = fp.get(),
+                                        &fp_mtx, &success_count]() -> bool {
             pm_.mark_thread_active(file_id_, i);
             pm_.redraw();
 
@@ -231,15 +231,19 @@ bool Downloader::start_download() {
                 uint64_t resume_from = base_start + bytes_already;
                 uint64_t remaining = chunk_total - bytes_already;
 
-                if (remaining == 0) { success = true; break; }
+                if (remaining == 0) {
+                    success = true;
+                    break;
+                }
 
-                ChunkCtx ctx{&pm_, file_id_, i, chunk_total, bytes_already, fp_raw, resume_from, &fp_mtx};
+                ChunkCtx ctx{&pm_,          file_id_, i,           chunk_total,
+                             bytes_already, fp_raw,   resume_from, &fp_mtx};
 
                 std::optional<std::pair<uint64_t, uint64_t>> range =
                     std::make_pair(resume_from, base_start + chunk_total - 1);
 
-                bool ok = transport_.download(config_.url, range,
-                    &ctx, chunk_write_cb, &ctx, chunk_progress_cb);
+                bool ok = transport_.download(config_.url, range, &ctx, chunk_write_cb, &ctx,
+                                              chunk_progress_cb);
 
                 if (ok) {
                     success = true;
@@ -286,8 +290,7 @@ bool Downloader::download_single() {
     std::string output = config_.output_path;
 
     uint64_t resume_offset = 0;
-    if (fs::exists(output) && fs::exists(meta_path()))
-        resume_offset = fs::file_size(output);
+    if (fs::exists(output) && fs::exists(meta_path())) resume_offset = fs::file_size(output);
 
     for (int retry = 0; retry <= config_.max_retries; retry++) {
         if (g_stop.stop_requested()) return false;
@@ -298,8 +301,7 @@ bool Downloader::download_single() {
             return false;
         }
 
-        if (resume_offset > 0)
-            fseek(fp.get(), resume_offset, SEEK_SET);
+        if (resume_offset > 0) fseek(fp.get(), resume_offset, SEEK_SET);
 
         pm_.mark_thread_active(file_id_, 0);
         pm_.redraw();
@@ -310,8 +312,8 @@ bool Downloader::download_single() {
         if (resume_offset > 0 && file_size_ > 0)
             range = std::make_pair(resume_offset, file_size_ - 1);
 
-        bool ok = transport_.download(config_.url, range,
-            &ctx, single_write_cb, &ctx, single_progress_cb);
+        bool ok = transport_.download(config_.url, range, &ctx, single_write_cb, &ctx,
+                                      single_progress_cb);
 
         if (g_stop.stop_requested()) {
             save_metadata();
@@ -344,4 +346,4 @@ void Downloader::save_metadata() {
     f << config_.url << "\n" << file_size_ << "\n" << config_.output_path << "\n";
 }
 
-}
+}  // namespace multidow
