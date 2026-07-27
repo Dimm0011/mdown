@@ -83,7 +83,7 @@ class ChecksumTest : public ::testing::Test {
    protected:
     std::string path_;
 
-    void SetUp(const std::string& content) {
+    void MakeFile(const std::string& content) {
 #ifdef _WIN32
         char buf[] = "C:\\Temp\\multidow_test_XXXXXX";
         if (_mktemp_s(buf, sizeof(buf)) != 0) return;
@@ -114,31 +114,31 @@ class ChecksumTest : public ::testing::Test {
 };
 
 TEST_F(ChecksumTest, SHA256_EmptyFile) {
-    SetUp("");
+    MakeFile("");
     EXPECT_EQ(sha256_file(path_),
               "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
 }
 
 TEST_F(ChecksumTest, SHA256_Hello) {
-    SetUp("hello");
+    MakeFile("hello");
     EXPECT_EQ(sha256_file(path_),
               "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
 }
 
 TEST_F(ChecksumTest, SHA256_LargeContent) {
     std::string data(100000, 'A');
-    SetUp(data);
+    MakeFile(data);
     EXPECT_EQ(sha256_file(path_).size(), 64u);
 }
 
 TEST_F(ChecksumTest, Verify_Match) {
-    SetUp("hello");
+    MakeFile("hello");
     EXPECT_TRUE(
         verify_checksum(path_, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"));
 }
 
 TEST_F(ChecksumTest, Verify_Mismatch) {
-    SetUp("hello");
+    MakeFile("hello");
     EXPECT_FALSE(
         verify_checksum(path_, "0000000000000000000000000000000000000000000000000000000000000000"));
 }
