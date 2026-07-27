@@ -5,13 +5,13 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
-#include <stop_token>
 #include <string>
 #include <vector>
+#include "compat.h"
 
 namespace multidow {
 
-extern std::stop_source g_stop;
+extern multidow::stop_source g_stop;
 extern volatile sig_atomic_t g_signal_received;
 
 struct SpeedSample {

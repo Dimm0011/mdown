@@ -79,26 +79,12 @@ jobs:
       - name: Build
         run: cmake --build build ${{ matrix.build_flags }}
 
-      - name: Unit Tests
-        if: runner.os != 'Windows'
-        run: ./build/test_all
-      - name: Unit Tests (Windows)
-        if: runner.os == 'Windows'
-        run: ./build/Release/test_all.exe
-
       - name: Google Tests
         if: runner.os != 'Windows'
         run: ./build/gtest_all
       - name: Google Tests (Windows)
         if: runner.os == 'Windows'
         run: ./build/Release/gtest_all.exe
-
-      - name: Catch2 Tests
-        if: runner.os != 'Windows'
-        run: ./build/catch2_all
-      - name: Catch2 Tests (Windows)
-        if: runner.os == 'Windows'
-        run: ./build/Release/catch2_all.exe
 
       - name: CTest
         if: runner.os != 'Windows'

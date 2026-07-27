@@ -338,9 +338,9 @@ TEST_F(ProgressTest, AnyStalled_Stalled) {
 
 TEST_F(ProgressTest, ConcurrentUpdateThread) {
     int id = pm.add_file("test.zip", 10000, 4);
-    std::vector<std::jthread> threads;
+    std::vector<multidow::jthread> threads;
     for (int t = 0; t < 4; t++) {
-        threads.emplace_back([this, id, t]() {
+        threads.emplace_back([this, id, t](multidow::stop_token) {
             for (int i = 0; i < 100; i++) {
                 pm.update_thread(id, t, i * 25, 2500);
             }

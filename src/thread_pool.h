@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
+#include "compat.h"
 
 namespace multidow {
 
@@ -16,7 +17,8 @@ class ThreadPool {
    public:
     explicit ThreadPool(size_t threads = std::thread::hardware_concurrency()) {
         if (threads == 0) threads = 1;
-        for (size_t i = 0; i < threads; i++) workers_.emplace_back([this] { worker_loop(); });
+        for (size_t i = 0; i < threads; i++)
+            workers_.emplace_back([this](multidow::stop_token) { worker_loop(); });
     }
 
     ~ThreadPool() {
@@ -73,7 +75,7 @@ class ThreadPool {
         }
     }
 
-    std::vector<std::jthread> workers_;
+    std::vector<multidow::jthread> workers_;
     std::queue<std::function<void()>> tasks_;
     std::mutex mtx_;
     std::condition_variable cv_;

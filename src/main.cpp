@@ -9,14 +9,11 @@
 #else
 #include <csignal>
 #endif
-#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <mutex>
-#include <stop_token>
 #include <string>
 #include <thread>
 #include <vector>
@@ -189,9 +186,9 @@ int main(int argc, char* argv[]) {
     multidow::ProgressManager pm;
     multidow::ThreadPool pool;
     std::vector<std::unique_ptr<multidow::Downloader>> downloaders;
-    std::vector<std::jthread> file_threads;
+    std::vector<std::thread> file_threads;
 
-    std::jthread timer([&pm](std::stop_token st) {
+    multidow::jthread timer([&pm](multidow::stop_token st) {
         while (!st.stop_requested()) {
             if (multidow::g_signal_received) {
                 multidow::g_stop.request_stop();
@@ -202,12 +199,11 @@ int main(int argc, char* argv[]) {
         }
     });
 
-    std::jthread watchdog([&pm](std::stop_token st) {
-        std::mutex mtx;
-        std::condition_variable_any cv;
-        std::unique_lock lk(mtx);
-        while (!cv.wait_for(lk, st, std::chrono::seconds(5), [&] { return st.stop_requested(); })) {
+    multidow::jthread watchdog([&pm](multidow::stop_token) {
+        while (true) {
+            multidow::wait_for(multidow::g_stop, std::chrono::seconds(5));
             if (pm.all_done()) break;
+            if (multidow::g_stop.stop_requested()) break;
             if (pm.any_stalled(std::chrono::seconds(120))) {
                 multidow::g_stop.request_stop();
                 break;
@@ -231,6 +227,7 @@ int main(int argc, char* argv[]) {
         file_threads.emplace_back([ptr]() { ptr->run(); });
     }
 
+    for (auto& t : file_threads) t.join();
     file_threads.clear();
     timer.request_stop();
     watchdog.request_stop();

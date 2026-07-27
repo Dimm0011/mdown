@@ -13,7 +13,7 @@
 
 namespace multidow {
 
-std::stop_source g_stop;
+stop_source g_stop;
 volatile sig_atomic_t g_signal_received = 0;
 
 static const int MIN_REDRAW_MS = 100;
