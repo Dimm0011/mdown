@@ -62,4 +62,4 @@ bool verify_checksum(const std::string& filepath, const std::string& expected) {
     return true;
 }
 
-} 
+}  // namespace multidow

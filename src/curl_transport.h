@@ -37,4 +37,4 @@ class CurlTransport : public ITransport {
     void configure(CURL* curl);
 };
 
-}
+}  // namespace multidow

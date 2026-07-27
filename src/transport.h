@@ -27,13 +27,10 @@ class ITransport {
 
     virtual ProbeResult head(const std::string& url) = 0;
 
-    virtual DownloadResult download(const std::string& url,
-                                    std::optional<std::pair<uint64_t, uint64_t>> range,
-                                    void* write_userp,
-                                    size_t (*write_cb)(char*, size_t, size_t, void*),
-                                    void* progress_userp,
-                                    int (*progress_cb)(void*, long long, long long, long long,
-                                                       long long)) = 0;
+    virtual DownloadResult download(
+        const std::string& url, std::optional<std::pair<uint64_t, uint64_t>> range,
+        void* write_userp, size_t (*write_cb)(char*, size_t, size_t, void*), void* progress_userp,
+        int (*progress_cb)(void*, long long, long long, long long, long long)) = 0;
 };
 
-}
+}  // namespace multidow

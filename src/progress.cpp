@@ -282,4 +282,4 @@ bool ProgressManager::any_stalled(std::chrono::seconds timeout) const {
     return has_active;
 }
 
-}
+}  // namespace multidow

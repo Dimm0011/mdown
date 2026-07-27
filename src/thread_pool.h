@@ -80,4 +80,4 @@ class ThreadPool {
     std::atomic<bool> stop_{false};
 };
 
-}
+}  // namespace multidow

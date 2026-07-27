@@ -49,4 +49,4 @@ class Downloader {
     std::vector<std::pair<uint64_t, uint64_t>> load_chunk_progress();
 };
 
-}
+}  // namespace multidow

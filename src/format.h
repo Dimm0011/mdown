@@ -33,4 +33,4 @@ inline std::string make_bar(int w, double p) {
     return bar;
 }
 
-}
+}  // namespace multidow

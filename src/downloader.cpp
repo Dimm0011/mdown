@@ -138,9 +138,9 @@ uint64_t Downloader::probe_server() {
         if (attempt < config_.max_retries) {
             int delay = backoff_seconds(attempt);
             if (file_id_ >= 0)
-                pm_.set_file_status(file_id_,
-                                    std::format("probe failed ({}/{}), retrying in {}s...",
-                                                attempt + 1, config_.max_retries, delay));
+                pm_.set_file_status(
+                    file_id_, std::format("probe failed ({}/{}), retrying in {}s...", attempt + 1,
+                                          config_.max_retries, delay));
             for (int s = 0; s < delay; s++) {
                 if (g_stop.stop_requested()) return 0;
                 std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -269,62 +269,59 @@ bool Downloader::start_download_multi(int fd, bool resume) {
             continue;
         }
 
-        if (i > 0 && already == 0)
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        if (i > 0 && already == 0) std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-        futures.push_back(pool_.submit([this, i, base_start, chunk_total, fd,
-                                        &success_count, &chunk_bytes]() -> bool {
-            pm_.mark_thread_active(file_id_, i);
+        futures.push_back(pool_.submit(
+            [this, i, base_start, chunk_total, fd, &success_count, &chunk_bytes]() -> bool {
+                pm_.mark_thread_active(file_id_, i);
 
-            bool success = false;
-            for (int retry = 0; retry <= config_.max_retries; retry++) {
-                if (g_stop.stop_requested()) break;
+                bool success = false;
+                for (int retry = 0; retry <= config_.max_retries; retry++) {
+                    if (g_stop.stop_requested()) break;
 
-                uint64_t cur = base_start + chunk_bytes[i].load(std::memory_order_relaxed);
-                ChunkCtx ctx{&pm_, file_id_, i, chunk_total, &chunk_bytes[i], fd, base_start};
+                    uint64_t cur = base_start + chunk_bytes[i].load(std::memory_order_relaxed);
+                    ChunkCtx ctx{&pm_, file_id_, i, chunk_total, &chunk_bytes[i], fd, base_start};
 
-                std::optional<std::pair<uint64_t, uint64_t>> range =
-                    std::make_pair(cur, base_start + chunk_total - 1);
+                    std::optional<std::pair<uint64_t, uint64_t>> range =
+                        std::make_pair(cur, base_start + chunk_total - 1);
 
-                DownloadResult dl_result = transport_.download(config_.url, range, &ctx,
-                                                               chunk_write_cb, &ctx,
-                                                               chunk_progress_cb);
+                    DownloadResult dl_result = transport_.download(
+                        config_.url, range, &ctx, chunk_write_cb, &ctx, chunk_progress_cb);
 
-                if (dl_result.ok) {
-                    if (dl_result.http_code != 206) {
-                        dl_result.ok = false;
-                        dl_result.error =
-                            "Server ignored Range (got " + std::to_string(dl_result.http_code) +
-                            ")";
+                    if (dl_result.ok) {
+                        if (dl_result.http_code != 206) {
+                            dl_result.ok = false;
+                            dl_result.error = "Server ignored Range (got " +
+                                              std::to_string(dl_result.http_code) + ")";
+                        } else {
+                            success = true;
+                            break;
+                        }
+                    }
+
+                    if (retry < config_.max_retries) {
+                        int delay = backoff_seconds(retry);
+                        pm_.mark_thread_error(file_id_, i);
+                        pm_.set_file_status(
+                            file_id_, std::format("ch{} retry {}s: {}", i, delay, dl_result.error));
+                        pm_.redraw();
+                        std::this_thread::sleep_for(std::chrono::seconds(delay));
+                        pm_.mark_thread_active(file_id_, i);
                     } else {
-                        success = true;
-                        break;
+                        pm_.set_file_status(file_id_,
+                                            std::format("ch{} failed: {}", i, dl_result.error));
                     }
                 }
 
-                if (retry < config_.max_retries) {
-                    int delay = backoff_seconds(retry);
-                    pm_.mark_thread_error(file_id_, i);
-                    pm_.set_file_status(file_id_,
-                                        std::format("ch{} retry {}s: {}", i, delay, dl_result.error));
-                    pm_.redraw();
-                    std::this_thread::sleep_for(std::chrono::seconds(delay));
-                    pm_.mark_thread_active(file_id_, i);
+                if (success) {
+                    pm_.mark_thread_finished(file_id_, i);
+                    success_count++;
                 } else {
-                    pm_.set_file_status(file_id_,
-                                        std::format("ch{} failed: {}", i, dl_result.error));
+                    pm_.mark_thread_error(file_id_, i);
                 }
-            }
-
-            if (success) {
-                pm_.mark_thread_finished(file_id_, i);
-                success_count++;
-            } else {
-                pm_.mark_thread_error(file_id_, i);
-            }
-            pm_.redraw();
-            return success;
-        }));
+                pm_.redraw();
+                return success;
+            }));
     }
 
     for (auto& f : futures) f.get();
@@ -370,7 +367,7 @@ bool Downloader::download_single() {
             range = std::make_pair(resume_offset, file_size_ - 1);
 
         DownloadResult dl_result = transport_.download(config_.url, range, &ctx, single_write_cb,
-                                                        &ctx, single_progress_cb);
+                                                       &ctx, single_progress_cb);
 
         if (g_stop.stop_requested()) {
             save_metadata();
@@ -384,7 +381,8 @@ bool Downloader::download_single() {
 
         if (concatenation) {
             dl_result.ok = false;
-            dl_result.error = "Server ignored Range (got " + std::to_string(dl_result.http_code) + ")";
+            dl_result.error =
+                "Server ignored Range (got " + std::to_string(dl_result.http_code) + ")";
         }
 
         if (dl_result.ok) {
@@ -402,9 +400,8 @@ bool Downloader::download_single() {
 
         if (retry < config_.max_retries) {
             pm_.mark_thread_error(file_id_, 0);
-            pm_.set_file_status(file_id_,
-                                std::format("retry {} in {}s: {}", retry + 1,
-                                            backoff_seconds(retry), dl_result.error));
+            pm_.set_file_status(file_id_, std::format("retry {} in {}s: {}", retry + 1,
+                                                      backoff_seconds(retry), dl_result.error));
             pm_.redraw();
             int delay = backoff_seconds(retry);
             std::this_thread::sleep_for(std::chrono::seconds(delay));
@@ -421,7 +418,8 @@ void Downloader::save_metadata() {
     f << config_.url << "\n" << file_size_ << "\n" << config_.output_path << "\n";
 }
 
-void Downloader::save_metadata_multi(const std::vector<std::pair<uint64_t, uint64_t>>& chunk_progress) {
+void Downloader::save_metadata_multi(
+    const std::vector<std::pair<uint64_t, uint64_t>>& chunk_progress) {
     std::ofstream f(meta_path());
     if (!f) return;
     f << config_.url << "\n" << file_size_ << "\n" << config_.output_path << "\n";
@@ -446,7 +444,11 @@ std::vector<std::pair<uint64_t, uint64_t>> Downloader::load_chunk_progress() {
     std::string count_str;
     if (!std::getline(f, count_str)) return result;
     int count = 0;
-    try { count = std::stoi(count_str); } catch (...) { return result; }
+    try {
+        count = std::stoi(count_str);
+    } catch (...) {
+        return result;
+    }
 
     for (int i = 0; i < count; i++) {
         std::string line;
@@ -457,9 +459,11 @@ std::vector<std::pair<uint64_t, uint64_t>> Downloader::load_chunk_progress() {
             uint64_t start = std::stoull(line.substr(0, sp));
             uint64_t done = std::stoull(line.substr(sp + 1));
             result.push_back({start, done});
-        } catch (...) { break; }
+        } catch (...) {
+            break;
+        }
     }
     return result;
 }
 
-}
+}  // namespace multidow

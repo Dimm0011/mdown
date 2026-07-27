@@ -9,10 +9,10 @@
 #else
 #include <csignal>
 #endif
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
-#include <condition_variable>
 #include <iostream>
 #include <memory>
 #include <mutex>

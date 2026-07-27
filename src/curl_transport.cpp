@@ -156,13 +156,10 @@ ProbeResult CurlTransport::head(const std::string& url) {
     return result;
 }
 
-DownloadResult CurlTransport::download(const std::string& url,
-                                       std::optional<std::pair<uint64_t, uint64_t>> range,
-                                       void* write_userp,
-                                       size_t (*write_cb)(char*, size_t, size_t, void*),
-                                       void* progress_userp,
-                                       int (*progress_cb)(void*, long long, long long, long long,
-                                                          long long)) {
+DownloadResult CurlTransport::download(
+    const std::string& url, std::optional<std::pair<uint64_t, uint64_t>> range, void* write_userp,
+    size_t (*write_cb)(char*, size_t, size_t, void*), void* progress_userp,
+    int (*progress_cb)(void*, long long, long long, long long, long long)) {
     CURL* curl = curl_easy_init();
     if (!curl) return {false, "curl_easy_init failed"};
 
@@ -196,4 +193,4 @@ DownloadResult CurlTransport::download(const std::string& url,
     return result;
 }
 
-}
+}  // namespace multidow

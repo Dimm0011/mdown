@@ -352,7 +352,8 @@ TEST_F(DownloaderTest, ExceptionSafety_TransportThrows) {
         }
         DownloadResult download(const std::string&, std::optional<std::pair<uint64_t, uint64_t>>,
                                 void*, size_t (*)(char*, size_t, size_t, void*), void*,
-                                int (*)(void*, long long, long long, long long, long long)) override {
+                                int (*)(void*, long long, long long, long long,
+                                        long long)) override {
             return {false, "network boom"};
         }
     } thrower;
@@ -535,8 +536,7 @@ struct RangeAwareTransport : ITransport {
         return probe_resp;
     }
 
-    DownloadResult download(const std::string&,
-                            std::optional<std::pair<uint64_t, uint64_t>> range,
+    DownloadResult download(const std::string&, std::optional<std::pair<uint64_t, uint64_t>> range,
                             void* write_userp, size_t (*write_cb)(char*, size_t, size_t, void*),
                             void* progress_userp,
                             int (*progress_cb)(void*, long long, long long, long long,

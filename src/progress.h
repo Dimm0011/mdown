@@ -76,4 +76,4 @@ class ProgressManager {
     void do_redraw();
 };
 
-}
+}  // namespace multidow
