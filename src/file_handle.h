@@ -49,4 +49,4 @@ class FileHandle {
     FILE* f_ = nullptr;
 };
 
-}  // namespace multidow
+}

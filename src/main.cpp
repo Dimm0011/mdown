@@ -4,16 +4,29 @@
 #include "progress.h"
 #include "thread_pool.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <csignal>
+#endif
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <condition_variable>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <stop_token>
 #include <string>
 #include <thread>
 #include <vector>
+
+static long parse_int(const char* s) {
+    char* end = nullptr;
+    long v = std::strtol(s, &end, 10);
+    if (end == s || *end != '\0') return -1;
+    return v;
+}
 
 static void usage() {
     std::cout << "mdown - multi-threaded file downloader with resume\n\n"
@@ -53,18 +66,32 @@ static void sigint_handler(int) {
     multidow::g_signal_received = 1;
 }
 
+#ifdef _WIN32
+static BOOL WINAPI ctrl_handler(DWORD type) {
+    if (type == CTRL_C_EVENT || type == CTRL_BREAK_EVENT) {
+        multidow::g_signal_received = 1;
+        return TRUE;
+    }
+    return FALSE;
+}
+#endif
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         usage();
         return 1;
     }
 
+#ifdef _WIN32
+    SetConsoleCtrlHandler(ctrl_handler, TRUE);
+#else
     struct sigaction sa {};
     sa.sa_handler = sigint_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, nullptr);
     sigaction(SIGTERM, &sa, nullptr);
+#endif
 
     multidow::DownloadConfig cfg;
     std::vector<std::string> urls;
@@ -81,16 +108,37 @@ int main(int argc, char* argv[]) {
                 cfg.output_explicit = true;
             }
         } else if (arg == "-t" || arg == "--threads") {
-            if (i + 1 < argc) cfg.num_threads = std::atoi(argv[++i]);
+            if (i + 1 < argc) {
+                long v = parse_int(argv[++i]);
+                if (v < 0) {
+                    std::cerr << "Invalid threads value: " << argv[i] << std::endl;
+                    return 1;
+                }
+                cfg.num_threads = (int)v;
+            }
         } else if (arg == "-c" || arg == "--checksum") {
             if (i + 1 < argc) {
                 cfg.expected_checksum = argv[++i];
                 cfg.verify = true;
             }
         } else if (arg == "-r" || arg == "--retries") {
-            if (i + 1 < argc) cfg.max_retries = std::atoi(argv[++i]);
+            if (i + 1 < argc) {
+                long v = parse_int(argv[++i]);
+                if (v < 0) {
+                    std::cerr << "Invalid retries value: " << argv[i] << std::endl;
+                    return 1;
+                }
+                cfg.max_retries = (int)v;
+            }
         } else if (arg == "-T" || arg == "--timeout") {
-            if (i + 1 < argc) cfg.timeout = std::atoi(argv[++i]);
+            if (i + 1 < argc) {
+                long v = parse_int(argv[++i]);
+                if (v <= 0) {
+                    std::cerr << "Invalid timeout value: " << argv[i] << std::endl;
+                    return 1;
+                }
+                cfg.timeout = (int)v;
+            }
         } else if (arg == "-f" || arg == "--file") {
             if (i + 1 < argc) url_file = argv[++i];
         } else if (arg[0] != '-') {
@@ -111,10 +159,28 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    if (cfg.num_threads < 1) cfg.num_threads = 1;
-    if (cfg.num_threads > 32) cfg.num_threads = 32;
+    if (urls.size() > 1) {
+        if (!cfg.expected_checksum.empty()) {
+            std::cerr << "-c/--checksum is only supported for a single URL, ignoring\n";
+            cfg.expected_checksum.clear();
+            cfg.verify = false;
+        }
+        if (cfg.output_explicit) {
+            std::cerr << "-o/--output is only supported for a single URL, ignoring\n";
+            cfg.output_explicit = false;
+            cfg.output_path.clear();
+        }
+    }
 
-    curl_global_init(CURL_GLOBAL_ALL);
+    if (cfg.num_threads < 1) cfg.num_threads = 1;
+    unsigned hw = std::thread::hardware_concurrency();
+    int max_threads = (hw > 0) ? std::min((int)hw, 16) : 16;
+    if (cfg.num_threads > max_threads) cfg.num_threads = max_threads;
+
+    if (curl_global_init(CURL_GLOBAL_ALL) != 0) {
+        std::cerr << "curl_global_init failed" << std::endl;
+        return 1;
+    }
 
     multidow::CurlTransportConfig tc;
     tc.timeout_sec = cfg.timeout;
@@ -136,6 +202,19 @@ int main(int argc, char* argv[]) {
         }
     });
 
+    std::jthread watchdog([&pm](std::stop_token st) {
+        std::mutex mtx;
+        std::condition_variable_any cv;
+        std::unique_lock lk(mtx);
+        while (!cv.wait_for(lk, st, std::chrono::seconds(5), [&] { return st.stop_requested(); })) {
+            if (pm.all_done()) break;
+            if (pm.any_stalled(std::chrono::seconds(120))) {
+                multidow::g_stop.request_stop();
+                break;
+            }
+        }
+    });
+
     for (auto& url : urls) {
         auto config = [&]() {
             multidow::DownloadConfig c = cfg;
@@ -148,11 +227,13 @@ int main(int argc, char* argv[]) {
     }
 
     for (auto& dl : downloaders) {
-        file_threads.emplace_back([&dl]() { dl->run(); });
+        auto* ptr = dl.get();
+        file_threads.emplace_back([ptr]() { ptr->run(); });
     }
 
     file_threads.clear();
     timer.request_stop();
+    watchdog.request_stop();
 
     curl_global_cleanup();
 

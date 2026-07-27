@@ -28,30 +28,13 @@ target_link_libraries(mdown PRIVATE
 
 install(TARGETS mdown RUNTIME DESTINATION bin)
 
-# --- Tests ---
-
-option(BUILD_TESTS "Build tests (requires Google Test / Catch2)" OFF)
+option(BUILD_TESTS "Build tests" OFF)
 
 if(BUILD_TESTS)
     enable_testing()
 
     include(FetchContent)
 
-    # --- Simple unit tests (no framework) ---
-    add_executable(test_all
-        tests/unit/test_all.cpp
-        src/progress.cpp
-        src/checksum.cpp
-    )
-    target_include_directories(test_all PRIVATE src)
-    target_link_libraries(test_all PRIVATE
-        OpenSSL::SSL
-        OpenSSL::Crypto
-        Threads::Threads
-    )
-    add_test(NAME multidow_unit COMMAND test_all)
-
-    # --- Google Test ---
     FetchContent_Declare(
         googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
@@ -76,27 +59,4 @@ if(BUILD_TESTS)
         Threads::Threads
     )
     add_test(NAME multidow_gtest COMMAND gtest_all)
-
-    # --- Catch2 ---
-    FetchContent_Declare(
-        catch2
-        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-        GIT_TAG v3.5.2
-    )
-    set(CATCH_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(catch2)
-
-    add_executable(catch2_all
-        tests/catch2/test_all.cpp
-        src/progress.cpp
-        src/checksum.cpp
-    )
-    target_include_directories(catch2_all PRIVATE src)
-    target_link_libraries(catch2_all PRIVATE
-        Catch2::Catch2WithMain
-        OpenSSL::SSL
-        OpenSSL::Crypto
-        Threads::Threads
-    )
-    add_test(NAME multidow_catch2 COMMAND catch2_all)
 endif()

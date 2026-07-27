@@ -6,6 +6,7 @@
 #include <future>
 #include <mutex>
 #include <queue>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -14,6 +15,7 @@ namespace multidow {
 class ThreadPool {
    public:
     explicit ThreadPool(size_t threads = std::thread::hardware_concurrency()) {
+        if (threads == 0) threads = 1;
         for (size_t i = 0; i < threads; i++) workers_.emplace_back([this] { worker_loop(); });
     }
 
@@ -34,7 +36,7 @@ class ThreadPool {
         auto future = task->get_future();
         {
             std::lock_guard lock(mtx_);
-            if (stop_) return {};
+            if (stop_) throw std::runtime_error("submit on stopped ThreadPool");
             tasks_.emplace([task]() { (*task)(); });
         }
         cv_.notify_one();
@@ -44,8 +46,7 @@ class ThreadPool {
     void shutdown() {
         {
             std::lock_guard lock(mtx_);
-            if (stop_) return;
-            stop_ = true;
+            if (stop_.exchange(true)) return;
         }
         cv_.notify_all();
         for (auto& w : workers_) {
@@ -63,8 +64,8 @@ class ThreadPool {
             std::function<void()> task;
             {
                 std::unique_lock lock(mtx_);
-                cv_.wait(lock, [this] { return stop_ || !tasks_.empty(); });
-                if (stop_ && tasks_.empty()) return;
+                cv_.wait(lock, [this] { return stop_.load() || !tasks_.empty(); });
+                if (stop_.load() && tasks_.empty()) return;
                 task = std::move(tasks_.front());
                 tasks_.pop();
             }
@@ -76,7 +77,7 @@ class ThreadPool {
     std::queue<std::function<void()>> tasks_;
     std::mutex mtx_;
     std::condition_variable cv_;
-    bool stop_ = false;
+    std::atomic<bool> stop_{false};
 };
 
-}  // namespace multidow
+}

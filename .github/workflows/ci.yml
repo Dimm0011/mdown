@@ -35,7 +35,19 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-22.04, macos-14]
+        include:
+          - os: ubuntu-24.04
+            cmake_flags: "-DCMAKE_BUILD_TYPE=Release"
+            build_flags: "-j$(nproc)"
+          - os: ubuntu-22.04
+            cmake_flags: "-DCMAKE_BUILD_TYPE=Release"
+            build_flags: "-j$(nproc)"
+          - os: macos-14
+            cmake_flags: "-DCMAKE_BUILD_TYPE=Release"
+            build_flags: "-j$(sysctl -n hw.ncpu)"
+          - os: windows-2022
+            cmake_flags: '-G "Visual Studio 17 2022" -A x64'
+            build_flags: "--config Release"
 
     runs-on: ${{ matrix.os }}
 
@@ -52,20 +64,46 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install curl openssl cmake
 
-      - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: vcpkg integrate install; vcpkg install curl:x64-windows-static openssl:x64-windows-static
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build ${{ matrix.cmake_flags }} -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        run: cmake -S . -B build ${{ matrix.cmake_flags }} -DBUILD_TESTS=ON
 
       - name: Build
-        run: cmake --build build -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+        run: cmake --build build ${{ matrix.build_flags }}
 
       - name: Unit Tests
+        if: runner.os != 'Windows'
         run: ./build/test_all
+      - name: Unit Tests (Windows)
+        if: runner.os == 'Windows'
+        run: ./build/Release/test_all.exe
 
       - name: Google Tests
+        if: runner.os != 'Windows'
         run: ./build/gtest_all
+      - name: Google Tests (Windows)
+        if: runner.os == 'Windows'
+        run: ./build/Release/gtest_all.exe
 
       - name: Catch2 Tests
+        if: runner.os != 'Windows'
         run: ./build/catch2_all
+      - name: Catch2 Tests (Windows)
+        if: runner.os == 'Windows'
+        run: ./build/Release/catch2_all.exe
 
       - name: CTest
+        if: runner.os != 'Windows'
         run: ctest --test-dir build --output-on-failure
+
+      - name: CTest (Windows)
+        if: runner.os == 'Windows'
+        run: ctest --test-dir build --output-on-failure -C Release

@@ -28,10 +28,12 @@ class MockTransport : public ITransport {
         return {};
     }
 
-    bool download(const std::string& url, std::optional<std::pair<uint64_t, uint64_t>> /*range*/,
-                  void* write_userp, size_t (*write_cb)(char*, size_t, size_t, void*),
-                  void* progress_userp,
-                  int (*progress_cb)(void*, long long, long long, long long, long long)) override {
+    DownloadResult download(const std::string& url,
+                            std::optional<std::pair<uint64_t, uint64_t>> range,
+                            void* write_userp, size_t (*write_cb)(char*, size_t, size_t, void*),
+                            void* progress_userp,
+                            int (*progress_cb)(void*, long long, long long, long long,
+                                               long long)) override {
         {
             std::lock_guard lock(mtx);
             download_urls.push_back(url);
@@ -50,9 +52,11 @@ class MockTransport : public ITransport {
                         (long long)download_data.size(), 0, 0);
         }
 
-        if (idx < (int)download_results.size()) return download_results[idx];
-        return true;
+        DownloadResult result;
+        result.ok = (idx < (int)download_results.size()) ? download_results[idx] : true;
+        result.http_code = range ? 206 : 200;
+        return result;
     }
 };
 
-}  // namespace multidow::mock
+}

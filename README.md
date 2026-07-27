@@ -6,10 +6,10 @@ Multi-threaded file downloader with resume support for Linux.
 
 - Multi-threaded download — splits file into chunks, downloads via shared thread pool
 - Multi-file — download multiple files simultaneously
-- Resume — interrupted downloads continue from where they left off
+- Resume — interrupted downloads continue from where they left off (per-chunk tracking)
 - Auto-retry — stalled transfers detected and retried automatically
 - Progress bar — real-time progress for each file (apt-style)
-- SHA-256 checksum verification
+- SHA-256 checksum verification (case-insensitive)
 - Full HTTP support — redirects, cookies, User-Agent
 - Cooperative cancellation — Ctrl+C saves progress cleanly via `std::stop_token`
 
@@ -53,16 +53,15 @@ Multi-threaded file downloader with resume support for Linux.
 2. Each `Downloader` probes the server (HEAD request) for file size & Range support
 3. `start_download()` splits file into N chunk tasks, submits each to the shared `ThreadPool`
 4. Each chunk uses its own `CURL` handle with a `Range` header; returns `std::future<bool>`
-5. `Resume manager` saves/loads `.mdow` metadata for interrupted downloads
+5. `Resume manager` saves/loads `.mdow` metadata with per-chunk progress for interrupted downloads
 6. `Progress manager` aggregates per-chunk progress into a single line per file, timer-driven redraw (100ms), sliding window speed
 7. `Checksum verifier` validates SHA-256 after download completes
 
 ## Build
 
 ```bash
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc)
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
 ```
 
 ### Dependencies
@@ -80,16 +79,9 @@ sudo apt install libcurl4-openssl-dev libssl-dev cmake g++
 ## Usage
 
 ```bash
-# Single file
 ./mdown "https://example.com/file.zip"
-
-# Multiple files
 ./mdown "https://url1.zip" "https://url2.zip" "https://url3.zip"
-
-# From URL list file
 ./mdown -f urls.txt
-
-# With options
 ./mdown -f urls.txt -t 8 -r 5
 ```
 
@@ -99,65 +91,32 @@ sudo apt install libcurl4-openssl-dev libssl-dev cmake g++
 |--------|-------------|---------|
 | `-f, --file <path>` | File with URLs (one per line, `#` for comments) | — |
 | `-o, --output <path>` | Output filename (single URL only) | from URL |
-| `-t, --threads <N>` | Download threads per file | 4 |
-| `-c, --checksum <SHA256>` | Verify SHA-256 after download | — |
+| `-t, --threads <N>` | Download threads per file (capped at hardware_concurrency, max 16) | 4 |
+| `-c, --checksum <SHA256>` | Verify SHA-256 after download (case-insensitive) | — |
 | `-r, --retries <N>` | Max retries per chunk | 3 |
 | `-T, --timeout <sec>` | Transfer timeout | 300 |
 | `-h, --help` | Show help | — |
 
-## URL list file format
-
-```text
-# Comments start with #
-https://example.com/file1.zip
-https://example.com/file2.iso
-https://example.com/file3.tar.gz
-```
-
 ## Resume
 
-If download is interrupted (Ctrl+C, network failure, etc.), just run the same command again. mdown saves resume metadata (`.mdow` files) and continues from where it stopped.
+If download is interrupted (Ctrl+C, network failure, etc.), run the same command again. mdown saves per-chunk progress in `.mdow` metadata and resumes exactly where it stopped — including multi-threaded mode.
 
 ```bash
-# First attempt — interrupted at 60%
 ./mdown "https://example.com/large-file.zip"
 # ^C
-
-# Second attempt — resumes from 60%
 ./mdown "https://example.com/large-file.zip"
+# Resumes from saved chunk offsets
 ```
 
 ## Tests
 
-### Simple tests (no dependencies)
-
 ```bash
-mkdir build && cd build
-cmake .. -DBUILD_TESTS=ON
-make -j$(nproc)
-ctest --output-on-failure
+cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
+cmake --build build -j$(nproc)
+./build/gtest_all
 ```
 
-### Google Tests
-
-Google Test downloads automatically via CMake FetchContent on first build:
-
-```bash
-mkdir build && cd build
-cmake .. -DBUILD_TESTS=ON
-make -j$(nproc)
-ctest --output-on-failure
-# or run directly:
-./gtest_all
-```
-
-| Suite | Tests | Covers |
-|-------|-------|--------|
-| FormatBytes | 8 | byte formatting (B/KB/MB/GB) |
-| FormatSpeed | 3 | speed formatting |
-| MakeBar | 8 | progress bar rendering |
-| ChecksumTest | 7 | SHA-256, verify checksum |
-| ProgressTest | 13 | ProgressManager lifecycle, multi-file, errors |
+63 tests covering: format, progress bar, SHA-256, ProgressManager lifecycle, downloader (mock transport).
 
 ## License
 

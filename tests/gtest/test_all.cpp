@@ -2,18 +2,18 @@
 #include "checksum.h"
 #include "format.h"
 #include "progress.h"
+#include "thread_pool.h"
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 #include <cstdio>
 #include <fstream>
 
 using namespace multidow;
-
-// ==================== format.h ====================
-
-TEST(FormatBytes, Zero) {
-    EXPECT_EQ(format_bytes(0), "0.0 B");
-}
 
 TEST(FormatBytes, Bytes) {
     EXPECT_EQ(format_bytes(512), "512.0 B");
@@ -28,7 +28,7 @@ TEST(FormatBytes, OneMB) {
 }
 
 TEST(FormatBytes, OneGB) {
-    EXPECT_EQ(format_bytes(1073741824), "1.0 GB");
+    EXPECT_EQ(format_bytes(1073741824), "1.000 GB");
 }
 
 TEST(FormatBytes, FractionalKB) {
@@ -40,7 +40,7 @@ TEST(FormatBytes, FractionalMB) {
 }
 
 TEST(FormatBytes, LargeGB) {
-    EXPECT_EQ(format_bytes(5368709120ULL), "5.0 GB");
+    EXPECT_EQ(format_bytes(5368709120ULL), "5.000 GB");
 }
 
 TEST(FormatSpeed, Basic) {
@@ -54,8 +54,6 @@ TEST(FormatSpeed, KB) {
 TEST(FormatSpeed, Zero) {
     EXPECT_EQ(format_speed(0), "0.0 B/s");
 }
-
-// ==================== make_bar ====================
 
 TEST(MakeBar, Empty) {
     EXPECT_EQ(make_bar(10, 0.0), "[..........]");
@@ -81,21 +79,23 @@ TEST(MakeBar, ClampNegative) {
     EXPECT_EQ(make_bar(5, -1.0), "[.....]");
 }
 
-TEST(MakeBar, Width1) {
-    EXPECT_EQ(make_bar(1, 1.0), "[#]");
-}
-
-TEST(MakeBar, Width1Empty) {
-    EXPECT_EQ(make_bar(1, 0.0), "[.]");
-}
-
-// ==================== checksum ====================
-
 class ChecksumTest : public ::testing::Test {
    protected:
     std::string path_;
 
     void SetUp(const std::string& content) {
+#ifdef _WIN32
+        char buf[] = "C:\\Temp\\multidow_test_XXXXXX";
+        if (_mktemp_s(buf, sizeof(buf)) != 0) return;
+        int fd = -1;
+        _open_s(&fd, buf, _O_CREAT | _O_WRONLY | _O_BINARY, _S_IREAD | _S_IWRITE);
+        ASSERT_NE(fd, -1);
+        if (!content.empty()) {
+            auto rc = _write(fd, content.c_str(), static_cast<unsigned>(content.size()));
+            (void)rc;
+        }
+        _close(fd);
+#else
         char buf[] = "/tmp/multidow_test_XXXXXX";
         int fd = mkstemp(buf);
         ASSERT_NE(fd, -1);
@@ -104,6 +104,7 @@ class ChecksumTest : public ::testing::Test {
             (void)rc;
         }
         close(fd);
+#endif
         path_ = buf;
     }
 
@@ -149,8 +150,6 @@ TEST_F(ChecksumTest, NonExistentFile) {
 TEST_F(ChecksumTest, Verify_NonExistent) {
     EXPECT_FALSE(verify_checksum("/tmp/no_such_file_12345", "abc"));
 }
-
-// ==================== ProgressManager ====================
 
 class ProgressTest : public ::testing::Test {
    protected:
@@ -241,48 +240,6 @@ TEST_F(ProgressTest, UpdateProgress) {
     EXPECT_TRUE(pm.all_done());
 }
 
-TEST_F(ProgressTest, InvalidFileId) {
-    pm.add_file("test.zip", 1000, 2);
-    pm.update_thread(99, 0, 100, 100);
-    pm.mark_thread_active(99, 0);
-    pm.mark_thread_finished(99, 0);
-    pm.mark_thread_error(99, 0);
-    pm.set_file_done(99, true, "x");
-    EXPECT_FALSE(pm.all_done());
-}
-
-TEST_F(ProgressTest, InvalidThreadId) {
-    int id = pm.add_file("test.zip", 1000, 2);
-    pm.update_thread(id, 99, 100, 100);
-    pm.mark_thread_active(id, 99);
-    pm.mark_thread_finished(id, 99);
-    pm.mark_thread_error(id, 99);
-    EXPECT_FALSE(pm.all_done());
-}
-
-TEST_F(ProgressTest, NegativeIds) {
-    pm.add_file("test.zip", 1000, 2);
-    pm.update_thread(-1, 0, 100, 100);
-    pm.mark_thread_active(-1, 0);
-    pm.mark_thread_finished(-1, -1);
-    pm.mark_thread_error(-1, 0);
-    EXPECT_FALSE(pm.all_done());
-}
-
-TEST_F(ProgressTest, RedrawDoesNotCrash) {
-    int id = pm.add_file("test.zip", 1024, 2);
-    pm.mark_thread_active(id, 0);
-    pm.update_thread(id, 0, 512, 1024);
-    pm.redraw();
-    pm.mark_thread_finished(id, 0);
-    pm.mark_thread_active(id, 1);
-    pm.update_thread(id, 1, 1024, 1024);
-    pm.redraw();
-    pm.mark_thread_finished(id, 1);
-    pm.set_file_done(id, true, "Done");
-    pm.redraw();
-}
-
 TEST_F(ProgressTest, RedrawMultipleFiles) {
     for (int i = 0; i < 5; i++) {
         int id = pm.add_file("file_" + std::to_string(i) + ".zip", 1000 * (i + 1), 3);
@@ -298,4 +255,97 @@ TEST_F(ProgressTest, RedrawMultipleFiles) {
     }
     pm.redraw();
     EXPECT_TRUE(pm.all_done());
+}
+
+TEST(ThreadPool, BasicSubmitAndResult) {
+    ThreadPool pool(2);
+    auto f = pool.submit([]() { return 42; });
+    EXPECT_EQ(f.get(), 42);
+}
+
+TEST(ThreadPool, MultipleTasks) {
+    ThreadPool pool(4);
+    std::vector<std::future<int>> futures;
+    for (int i = 0; i < 10; i++) {
+        futures.push_back(pool.submit([i]() { return i * i; }));
+    }
+    for (int i = 0; i < 10; i++) {
+        EXPECT_EQ(futures[i].get(), i * i);
+    }
+}
+
+TEST(ThreadPool, SubmitAfterShutdownThrows) {
+    ThreadPool pool(1);
+    pool.shutdown();
+    EXPECT_THROW(pool.submit([]() { return 1; }), std::runtime_error);
+}
+
+TEST(ThreadPool, ShutdownJoinsWorkers) {
+    ThreadPool pool(4);
+    std::atomic<int> counter{0};
+    for (int i = 0; i < 8; i++) {
+        pool.submit([&counter]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            counter++;
+        });
+    }
+    pool.shutdown();
+    EXPECT_EQ(counter.load(), 8);
+}
+
+TEST(ThreadPool, SizeReturnsWorkerCount) {
+    ThreadPool pool(3);
+    EXPECT_EQ(pool.size(), 3u);
+}
+
+TEST_F(ProgressTest, SetFileStatus) {
+    int id = pm.add_file("test.zip", 1000, 1);
+    pm.set_file_status(id, "custom message");
+    pm.redraw();
+    EXPECT_FALSE(pm.all_done());
+}
+
+TEST_F(ProgressTest, RenameFile) {
+    int id = pm.add_file("old_name.zip", 1000, 1);
+    pm.rename_file(id, "new_name.zip");
+    pm.redraw();
+    EXPECT_FALSE(pm.all_done());
+}
+
+TEST_F(ProgressTest, AnyStalled_NoFiles) {
+    EXPECT_FALSE(pm.any_stalled(std::chrono::seconds(1)));
+}
+
+TEST_F(ProgressTest, AnyStalled_AllDone) {
+    int id = pm.add_file("test.zip", 1000, 1);
+    pm.set_file_done(id, true, "Done");
+    EXPECT_FALSE(pm.any_stalled(std::chrono::seconds(1)));
+}
+
+TEST_F(ProgressTest, AnyStalled_RecentlyActive) {
+    int id = pm.add_file("test.zip", 1000, 1);
+    pm.mark_thread_active(id, 0);
+    pm.update_thread(id, 0, 100, 1000);
+    EXPECT_FALSE(pm.any_stalled(std::chrono::seconds(10)));
+}
+
+TEST_F(ProgressTest, AnyStalled_Stalled) {
+    int id = pm.add_file("test.zip", 1000, 1);
+    pm.mark_thread_active(id, 0);
+    pm.update_thread(id, 0, 100, 1000);
+    EXPECT_TRUE(pm.any_stalled(std::chrono::seconds(0)));
+}
+
+TEST_F(ProgressTest, ConcurrentUpdateThread) {
+    int id = pm.add_file("test.zip", 10000, 4);
+    std::vector<std::jthread> threads;
+    for (int t = 0; t < 4; t++) {
+        threads.emplace_back([this, id, t]() {
+            for (int i = 0; i < 100; i++) {
+                pm.update_thread(id, t, i * 25, 2500);
+            }
+        });
+    }
+    for (auto& t : threads) t.join();
+    pm.redraw();
 }

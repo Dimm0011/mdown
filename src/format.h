@@ -14,7 +14,10 @@ inline std::string format_bytes(uint64_t b) {
         v /= 1024;
         u++;
     }
-    return std::format("{:.1f} {}", v, units[u]);
+    if (u == 3 && v < 10)
+        return std::format("{:.3f} {}", v, units[u]);
+    else
+        return std::format("{:.1f} {}", v, units[u]);
 }
 
 inline std::string format_speed(uint64_t bps) {
@@ -30,4 +33,4 @@ inline std::string make_bar(int w, double p) {
     return bar;
 }
 
-}  // namespace multidow
+}

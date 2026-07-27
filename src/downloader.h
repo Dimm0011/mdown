@@ -40,10 +40,13 @@ class Downloader {
 
     uint64_t probe_server();
     bool start_download();
+    bool start_download_multi(int fd, bool resume);
     bool download_single();
     std::string extract_filename(const std::string& url) const;
     std::string meta_path() const;
     void save_metadata();
+    void save_metadata_multi(const std::vector<std::pair<uint64_t, uint64_t>>& chunk_progress);
+    std::vector<std::pair<uint64_t, uint64_t>> load_chunk_progress();
 };
 
-}  // namespace multidow
+}

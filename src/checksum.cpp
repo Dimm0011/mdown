@@ -1,5 +1,6 @@
 #include "checksum.h"
 #include <openssl/evp.h>
+#include <cctype>
 #include <format>
 #include <fstream>
 #include <iostream>
@@ -53,7 +54,12 @@ bool verify_checksum(const std::string& filepath, const std::string& expected) {
         std::cerr << "Cannot compute checksum" << std::endl;
         return false;
     }
-    return actual == expected;
+    if (actual.size() != expected.size()) return false;
+    for (size_t i = 0; i < actual.size(); i++) {
+        if (std::tolower((unsigned char)actual[i]) != std::tolower((unsigned char)expected[i]))
+            return false;
+    }
+    return true;
 }
 
-}  // namespace multidow
+} 
