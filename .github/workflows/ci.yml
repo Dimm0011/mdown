@@ -39,9 +39,6 @@ jobs:
           - os: ubuntu-24.04
             cmake_flags: "-DCMAKE_BUILD_TYPE=Release"
             build_flags: "-j$(nproc)"
-          - os: ubuntu-22.04
-            cmake_flags: "-DCMAKE_BUILD_TYPE=Release"
-            build_flags: "-j$(nproc)"
           - os: macos-14
             cmake_flags: "-DCMAKE_BUILD_TYPE=Release"
             build_flags: "-j$(sysctl -n hw.ncpu)"
