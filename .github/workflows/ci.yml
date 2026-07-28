@@ -39,6 +39,9 @@ jobs:
           - os: ubuntu-24.04
             cmake_flags: "-DCMAKE_BUILD_TYPE=Release"
             build_flags: "-j$(nproc)"
+          - os: ubuntu-22.04
+            cmake_flags: "-DCMAKE_BUILD_TYPE=Release"
+            build_flags: "-j$(nproc)"
           - os: macos-14
             cmake_flags: "-DCMAKE_BUILD_TYPE=Release"
             build_flags: "-j$(sysctl -n hw.ncpu)"
@@ -54,7 +57,15 @@ jobs:
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
+          if [ "${{ matrix.os }}" = "ubuntu-22.04" ]; then
+            sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          fi
           sudo apt-get update
+          if [ "${{ matrix.os }}" = "ubuntu-22.04" ]; then
+            sudo apt-get install -y g++-13
+            echo "CC=gcc-13" >> $GITHUB_ENV
+            echo "CXX=g++-13" >> $GITHUB_ENV
+          fi
           sudo apt-get install -y libcurl4-openssl-dev libssl-dev cmake g++
 
       - name: Install dependencies (macOS)
@@ -67,7 +78,7 @@ jobs:
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: cmake -S . -B build ${{ matrix.cmake_flags }} -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+        run: cmake -S . -B build ${{ matrix.cmake_flags }} -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static
 
       - name: Configure (Unix)
         if: runner.os != 'Windows'
